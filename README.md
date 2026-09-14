@@ -1,0 +1,261 @@
+# entra-oauth-mcp-server
+
+A small, production-shaped [Model Context Protocol](https://modelcontextprotocol.io) server written in TypeScript.
+
+- Official **MCP SDK** (`@modelcontextprotocol/sdk`) over the **Streamable HTTP** transport (stateless, JSON responses).
+- Every MCP call requires a **Microsoft Entra ID** (Azure AD) v2 access token, validated against the tenant JWKS: signature, `iss`, `aud`, `exp`/`nbf`.
+- Callers must hold a configurable delegated scope, `mcp.invoke` by default.
+- Tools: `whoami` (returns safe identity claims from the token) and `echo`.
+
+## Layout
+
+| Path | Purpose |
+| --- | --- |
+| `src/config.ts` | Environment configuration + derived issuer/JWKS URLs |
+| `src/auth.ts` | Bearer extraction, Entra JWT verification, scope enforcement, claim mapping |
+| `src/mcp-server.ts` | MCP server + tool registrations bound to the caller's identity |
+| `src/app.ts` | Express app: auth middleware, `/mcp`, `/healthz`, protected-resource metadata |
+| `src/index.ts` | Process entrypoint |
+| `test/auth.test.ts` | Unit tests for token/scope/claim handling and config |
+| `test/server.test.ts` | HTTP tests: 401/403 paths and a full authenticated MCP round-trip |
+| `Dockerfile` | Multi-stage production container image (non-root) |
+| `azure.yaml` | Azure Developer CLI service definition |
+| `infra/` | Bicep infrastructure (AVM modules) for Azure Container Apps |
+| `.azure/deployment-plan.md` | Deployment plan and architecture decisions |
+
+## 1. Entra ID app registrations
+
+You need two registrations: the **API** (this server) and the **client** (whatever calls it).
+
+### 1a. API app registration — expose the scope
+
+1. Entra admin center → **App registrations** → **New registration**. Name it e.g. `mcp-server-api`. Register.
+2. Note the **Application (client) ID** and **Directory (tenant) ID**.
+3. **Expose an API** → **Add** next to *Application ID URI*. Accept the default `api://<api-client-id>` (or set a custom URI) → **Save**.
+4. **Add a scope**:
+   - Scope name: `mcp.invoke`
+   - Who can consent: *Admins and users* (or admins only, your call)
+   - Admin consent display name/description: e.g. "Invoke MCP tools"
+   - State: **Enabled** → **Add scope**
+
+   The full scope value is `api://<api-client-id>/mcp.invoke`.
+
+No client secret or certificate is needed — this server only **validates** tokens, it never requests them.
+
+### 1b. Client app registration — PKCE
+
+1. **New registration**, name e.g. `mcp-client`.
+2. **Authentication** → **Add a platform**:
+   - Desktop/CLI clients (the usual MCP case): choose **Mobile and desktop applications** and add the redirect URI `http://localhost:<port>/callback` (public client, Authorization Code + **PKCE**, no secret). Set *Allow public client flows* to **Yes**.
+   - Browser-based clients: choose **Single-page application** with your app's redirect URI — SPA registrations enforce PKCE automatically.
+3. **API permissions** → **Add a permission** → **My APIs** → select `mcp-server-api` → **Delegated permissions** → check `mcp.invoke` → **Add permissions**. Grant admin consent if your tenant requires it.
+
+### 1c. Token audience — the part people get wrong
+
+When the client requests a token it must ask for the **API's** scope, not Microsoft Graph:
+
+```
+scope = api://<api-client-id>/mcp.invoke offline_access
+```
+
+That produces a v2 access token with:
+
+- `aud` = `<api-client-id>` or `api://<api-client-id>` (depending on the *Accepted token version* / Application ID URI form)
+- `iss` = `https://login.microsoftonline.com/<tenant-id>/v2.0`
+- `scp` containing `mcp.invoke`
+
+Set `ENTRA_AUDIENCE` to whatever your tokens actually carry in `aud`. If you are unsure, decode a token at [jwt.ms](https://jwt.ms) and copy the `aud` value. You may list both forms, comma-separated:
+
+```
+ENTRA_AUDIENCE=api://11111111-1111-1111-1111-111111111111,11111111-1111-1111-1111-111111111111
+```
+
+> A Microsoft Graph token (`aud` = `00000003-0000-0000-c000-000000000000`) will always be rejected here, by design.
+
+## 2. Configure and run locally
+
+```bash
+npm install
+cp .env.example .env   # then fill in ENTRA_TENANT_ID and ENTRA_AUDIENCE
+npm run dev            # watch mode
+# or
+npm run build && npm start
+```
+
+Environment variables (all documented in `.env.example`):
+
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `ENTRA_TENANT_ID` | yes | – | Directory (tenant) ID |
+| `ENTRA_AUDIENCE` | yes | – | Expected `aud` value(s), comma-separated |
+| `MCP_REQUIRED_SCOPE` | no | `mcp.invoke` | Delegated scope required for every MCP call |
+| `ENTRA_ISSUER` | no | `https://login.microsoftonline.com/<tenant>/v2.0` | Expected `iss` |
+| `ENTRA_JWKS_URI` | no | tenant v2 `discovery/v2.0/keys` | Signing key source |
+| `PORT` / `HOST` | no | `3000` / `127.0.0.1` | Listener |
+| `PUBLIC_BASE_URL` | no | `http://HOST:PORT` | Used in OAuth metadata and `WWW-Authenticate` |
+
+No credentials are stored in code; `.env` is git-ignored.
+
+### Endpoints
+
+| Method | Path | Auth | Notes |
+| --- | --- | --- | --- |
+| `POST` | `/mcp` | Bearer | Streamable HTTP MCP endpoint |
+| `GET`/`DELETE` | `/mcp` | – | `405` (stateless server: no SSE stream or session teardown) |
+| `GET` | `/healthz` | – | Liveness |
+| `GET` | `/.well-known/oauth-protected-resource` | – | RFC 9728 metadata pointing clients at your tenant |
+
+## 3. Verify with curl
+
+Get a token first. For a quick manual check, the Azure CLI can mint one for your API:
+
+```bash
+az login --tenant <tenant-id>
+TOKEN=$(az account get-access-token \
+  --scope "api://<api-client-id>/mcp.invoke" \
+  --query accessToken -o tsv)
+```
+
+(The Azure CLI must be granted `mcp.invoke` on the API registration. In production your MCP client performs the Authorization Code + PKCE flow described above.)
+
+**No token → 401 plus a discovery hint:**
+
+```bash
+curl -i -X POST http://127.0.0.1:3000/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+
+# HTTP/1.1 401 Unauthorized
+# WWW-Authenticate: Bearer error="invalid_request", error_description="Missing Authorization header.",
+#   resource_metadata="http://127.0.0.1:3000/.well-known/oauth-protected-resource"
+```
+
+**Initialize with a token:**
+
+```bash
+curl -s -X POST http://127.0.0.1:3000/mcp \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+```
+
+**List tools:**
+
+```bash
+curl -s -X POST http://127.0.0.1:3000/mcp \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+```
+
+**Call `whoami`:**
+
+```bash
+curl -s -X POST http://127.0.0.1:3000/mcp \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"whoami","arguments":{}}}'
+```
+
+Returns only non-sensitive identity claims:
+
+```json
+{
+  "subject": "…", "objectId": "…", "tenantId": "…", "clientId": "…",
+  "username": "user@contoso.com", "name": "Test User",
+  "scopes": ["mcp.invoke"], "issuer": "…", "audience": "…",
+  "issuedAt": 1750000000, "expiresAt": 1750003600
+}
+```
+
+A token that is valid but lacks `mcp.invoke` gets `403` with `WWW-Authenticate: Bearer error="insufficient_scope", …, scope="mcp.invoke"`.
+
+> On Windows PowerShell, replace `$TOKEN` with `$env:TOKEN` and use `curl.exe` instead of the `curl` alias.
+
+## 4. Scripts
+
+| Script | Action |
+| --- | --- |
+| `npm run dev` | Watch-mode server via `tsx` |
+| `npm run build` | Compile to `dist/` |
+| `npm start` | Run the compiled server |
+| `npm run typecheck` | Typecheck `src/` and `test/` |
+| `npm test` | Vitest suite |
+
+The tests never contact Entra: they generate a local RSA keypair, sign tokens with `jose`, and inject a verifier into the same code path, covering valid tokens, expiry, wrong issuer, wrong audience, untrusted signing key, missing/malformed bearer headers, missing scope, and claim redaction.
+
+## 5. Deploy to Azure
+
+The server deploys to **Azure Container Apps (Consumption)** with the Azure Developer CLI and Bicep.
+Full rationale and architecture live in [`.azure/deployment-plan.md`](.azure/deployment-plan.md).
+
+### What gets created
+
+| Resource | Tier | Why |
+| --- | --- | --- |
+| Container App | 0.5 vCPU / 1 GiB, **min 0 / max 3** replicas | Scales to zero, so an idle server costs essentially nothing |
+| Container Apps environment | Consumption workload profile | No fixed charge |
+| Container Registry | Basic, **admin user disabled** | Image storage; pulls use a managed identity |
+| Log Analytics workspace | PerGB2018, 30-day retention, 1 GB/day cap | Container logs, with a cap to avoid cost surprises |
+
+Application Insights and Key Vault are intentionally **not** deployed: the app has no APM instrumentation, and it holds no
+secrets (it only *validates* tokens). See the plan for details.
+
+### Prerequisites
+
+- [Azure Developer CLI](https://aka.ms/azd-install) (`azd`)
+- Docker (used by `azd` to build the image)
+- An Azure subscription, and the Entra registrations from section 1
+
+### Deploy
+
+```bash
+azd auth login
+azd env new mcp-dev
+
+# Non-secret configuration. Without real values the server starts but rejects every token.
+azd env set ENTRA_TENANT_ID   "<your-tenant-id>"
+azd env set ENTRA_AUDIENCE    "api://<your-api-client-id>"
+azd env set MCP_REQUIRED_SCOPE "mcp.invoke"
+
+azd up
+```
+
+`azd up` builds the image, pushes it to the registry, provisions the infrastructure, and deploys. On completion it prints
+the public endpoint, for example:
+
+```
+SERVICE_MCP_URI  https://ca-mcp-<token>.francecentral.azurecontainerapps.io
+MCP_ENDPOINT     https://ca-mcp-<token>.francecentral.azurecontainerapps.io/mcp
+```
+
+Verify it the same way as locally:
+
+```bash
+curl -s "$SERVICE_MCP_URI/healthz"
+curl -s "$SERVICE_MCP_URI/.well-known/oauth-protected-resource"
+```
+
+### Deployment notes
+
+- **`HOST=0.0.0.0` is set in the container.** The app defaults to `127.0.0.1`; without this override the container would
+  accept no external traffic. It is supplied as an environment variable, so no source change is needed.
+- **`PUBLIC_BASE_URL` is derived automatically** from the Container Apps ingress FQDN inside Bicep, so the OAuth metadata
+  document and the `WWW-Authenticate: resource_metadata=` hint are correct after a single `azd up`. Set the
+  `publicBaseUrl` parameter only if you put a custom domain in front.
+- **Add the deployed URL as a redirect URI** on your *client* registration before running an interactive OAuth flow.
+- **Cold starts are expected.** `minReplicas: 0` is deliberate; the first request after an idle period pays a container
+  start. Set `minReplicas: 1` in `infra/main.bicep` to trade cost for latency.
+- **Entra parameters default to placeholder GUIDs** so the infrastructure can be provisioned before the registrations
+  exist. The server will reject all tokens until real values are set with `azd env set` and redeployed.
+
+## Security notes
+
+- Tokens are verified on **every** MCP request; the server is stateless, so there is no session to hijack after the fact.
+- Only allow-listed claims are returned by `whoami` — group, role, and raw-token data are never echoed back.
+- `ENTRA_ISSUER`/`ENTRA_AUDIENCE` are enforced, so tokens minted for other APIs or tenants are rejected.
+- Terminate TLS in front of this server (reverse proxy or platform ingress) and set `PUBLIC_BASE_URL` to the public `https://` URL.

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "${AZURE_ENV_NAME}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "entraTenantId": {
+      "value": "${ENTRA_TENANT_ID=00000000-0000-0000-0000-000000000000}"
+    },
+    "entraAudience": {
+      "value": "${ENTRA_AUDIENCE=api://00000000-0000-0000-0000-000000000000}"
+    },
+    "mcpRequiredScope": {
+      "value": "${MCP_REQUIRED_SCOPE=mcp.invoke}"
+    },
+    "entraIssuer": {
+      "value": "${ENTRA_ISSUER=}"
+    },
+    "entraJwksUri": {
+      "value": "${ENTRA_JWKS_URI=}"
+    },
+    "publicBaseUrl": {
+      "value": "${PUBLIC_BASE_URL=}"
+    },
+    "mcpExists": {
+      "value": "${SERVICE_MCP_RESOURCE_EXISTS=false}"
+    }
+  }
+}
