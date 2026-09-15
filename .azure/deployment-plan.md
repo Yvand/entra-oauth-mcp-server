@@ -332,7 +332,56 @@ Test container and image were removed afterwards (`docker rm -f` / `docker rmi -
 > `azd provision --preview` and `az deployment sub what-if` completed successfully, and `az bicep build` fully type-checked
 > every module, including all four AVM modules, against their pinned versions.
 
----
+### 7b. Post-validation incident: real `azd provision` failure and fix (2026-09-15)
+
+A subsequent actual provision run, **`mcp-dev-1789463522`** (subscription `26508ee7-4aa7-4f59-9180-842360f2b153`,
+`rg-mcp-dev`), failed. `az deployment operation sub list` / `az deployment operation group list` pinpointed **two**
+distinct failures the earlier what-if preview had not caught, because both are backend/ARM-side validations that
+`--preview`/what-if do not fully replicate for resources whose parameters depend on not-yet-created siblings:
+
+| # | Failing resource | ARM error code | Message |
+|---|---|---|---|
+| 1 | `Microsoft.ContainerRegistry/registries/cr73ym7xy7k6m32` | `NetworkRuleNotSupported` | "The requested feature virtual network rule is not supported for the SKU Basic." |
+| 2 | `Microsoft.Resources/deployments/cae-73ym7xy7k6m32` (managed environment) | `ManagedEnvironmentInvalidNetworkConfiguration` | "ZoneRedundant must be disabled if InfrastructureSubnetId is not provided." |
+
+**Root cause 1 (ACR):** in the pinned `avm/res/container-registry/registry:0.13.0` source, the internal variable
+`shouldConfigureNetworkRuleSet` is `true` whenever `networkRuleSetIpRules != null` **or**
+(`publicNetworkAccess == 'Enabled'` **and** `networkRuleSetDefaultAction == 'Deny'`). `main.bicep` set
+`publicNetworkAccess: 'Enabled'` but never overrode `networkRuleSetDefaultAction`, whose module default is `'Deny'`. That
+combination made the module emit a `networkRuleSet: { defaultAction: 'Deny', ipRules: [] }` property on the ACR resource
+— and Basic-tier ACR rejects the `networkRuleSet` property outright, even with no actual IP/VNet rules inside it. This
+was never exercised by `what-if`/`az bicep build` because template type-checking doesn't call the ACR RP's runtime
+validation.
+
+**Fix 1:** added one parameter to the `containerRegistry` module in `infra/main.bicep`:
+`networkRuleSetDefaultAction: 'Allow'`. This makes the module's own condition false, so it omits the `networkRuleSet`
+property entirely (there is no explicit "disabled" flag in the module's interface — omission is the only way to avoid
+it). SKU stays **Basic**; no upgrade to Standard/Premium was needed or made.
+
+**Root cause 2 (environment):** `avm/res/app/managed-environment:0.16.0` defaults `zoneRedundant` to `true`. Zone
+redundancy requires the environment to be deployed into a customer VNet subnet (`infrastructureSubnetResourceId`), which
+this low-cost architecture deliberately does not use. Without a subnet, ARM rejects `zoneRedundant: true` at actual
+creation time — a check `what-if` does not perform for this nested deployment (it was already short-circuited per the
+note above, so no diagnostic ever surfaced it).
+
+**Fix 2:** added `zoneRedundant: false` to the `containerAppsEnvironment` module in `infra/main.bicep`. This has no cost
+or availability implication for a single-region, non-VNet Consumption deployment — the environment was already
+effectively non-zone-redundant by construction.
+
+Both fixes are additive parameters only; no module version, SKU, or architectural component changed.
+
+**Re-validation after the fix:**
+
+| Check | Command | Result |
+|---|---|---|
+| Bicep compiles | `az bicep build --file infra\main.bicep` | ✅ exit 0, 0 errors |
+| No drift / ACR plan clean | `az deployment sub what-if --location francecentral --template-file infra\main.bicep --parameters environmentName=mcp-dev location=francecentral ...` | ✅ `Succeeded`. ACR resource plan now shows **no `networkRuleSet` property at all**; only `1 to create` (ACR), `2 no change` (resource group, Log Analytics — already present from the earlier partial run) |
+| Provision preview (real CLI, real tenant) | `AZURE_TENANT_ID=3989f541-267c-4dcf-94f1-98a4d20d2b23 azd provision --preview --no-prompt` | ✅ `SUCCESS: Generated provisioning preview` — plans `Create: Container Registry cr73ym7xy7k6m32`; `Skip: rg-mcp-dev`, `Skip: log-73ym7xy7k6m32` (both already exist from the failed run) |
+| App still green | `npm run typecheck`; `npx vitest run` | ✅ typecheck exit 0; **26/26 tests passed** |
+
+No `azd up`, `azd deploy`, or non-preview `azd provision` was run. Nothing was deployed as part of this fix.
+
+
 
 ## 8. Files Generated (Phase 2 ✅ complete)
 

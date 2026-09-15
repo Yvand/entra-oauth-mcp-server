@@ -95,6 +95,13 @@ module containerRegistry 'br/public:avm/res/container-registry/registry:0.13.0' 
     acrSku: 'Basic'
     acrAdminUserEnabled: false
     publicNetworkAccess: 'Enabled'
+    // Basic SKU cannot carry a networkRuleSet (virtual network / IP rules) at all —
+    // ACR rejects it with NetworkRuleNotSupported. The module only omits that
+    // property when networkRuleSetDefaultAction is 'Allow'; its own default is
+    // 'Deny', which combined with publicNetworkAccess: 'Enabled' makes it emit
+    // networkRuleSet unconditionally. Basic has no way to restrict network access
+    // anyway, so 'Allow' here has no effect beyond suppressing that property.
+    networkRuleSetDefaultAction: 'Allow'
   }
 }
 
@@ -109,6 +116,10 @@ module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.16.
       destination: 'log-analytics'
       logAnalyticsWorkspaceResourceId: logAnalytics.outputs.resourceId
     }
+    // The module defaults zoneRedundant to true, which Azure rejects unless the
+    // environment is deployed into a subnet (infrastructureSubnetResourceId). This
+    // deployment has no VNet, so zone redundancy must be explicitly disabled.
+    zoneRedundant: false
   }
 }
 
