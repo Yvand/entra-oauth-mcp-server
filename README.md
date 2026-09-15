@@ -50,6 +50,16 @@ No client secret or certificate is needed — this server only **validates** tok
    - Browser-based clients: choose **Single-page application** with your app's redirect URI — SPA registrations enforce PKCE automatically.
 3. **API permissions** → **Add a permission** → **My APIs** → select `mcp-server-api` → **Delegated permissions** → check `mcp.invoke` → **Add permissions**. Grant admin consent if your tenant requires it.
 
+   Steps 1–3 as Azure CLI instead of the portal (run `az login` first; you need rights to manage app registrations, e.g. **Application Administrator**):
+
+   ```shell
+   mcpServerApp="<api-client-id>"     # Application (client) ID from 1a, step 2
+   mcpClientApp="<client-app-id>"     # Application (client) ID of mcp-client from step 1 above
+   mcpServerScopeId=$(az ad app show --id $mcpServerApp --query "api.oauth2PermissionScopes[?value=='mcp.invoke'].id" -o tsv)
+   az ad app permission add --id $mcpClientApp --api $mcpServerApp --api-permissions $mcpServerScopeId=Scope
+   az ad app permission grant --id $mcpClientApp --api $mcpServerApp --scope $mcpServerScopeId
+   ```
+
 ### 1c. Token audience — the part people get wrong
 
 When the client requests a token it must ask for the **API's** scope, not Microsoft Graph:
@@ -107,7 +117,10 @@ No credentials are stored in code; `.env` is git-ignored.
 
 ## 3. Verify with curl
 
-Get a token first. For a quick manual check, the Azure CLI can mint one for your API:
+Uses the registrations from section 1: `<tenant-id>` is the API's Directory (tenant) ID (1a, step 2), `<api-client-id>` is
+its Application (client) ID, and the Azure CLI itself stands in for `mcp-client` — it must already have been granted
+`mcp.invoke` on the API registration (1b, step 3). In production your real MCP client performs the Authorization Code +
+PKCE flow described above instead of this shortcut.
 
 ```bash
 az login --tenant <tenant-id>
@@ -116,7 +129,12 @@ TOKEN=$(az account get-access-token \
   --query accessToken -o tsv)
 ```
 
-(The Azure CLI must be granted `mcp.invoke` on the API registration. In production your MCP client performs the Authorization Code + PKCE flow described above.)
+PowerShell equivalent:
+
+```powershell
+az login --tenant <tenant-id>
+$TOKEN = az account get-access-token --scope "api://<api-client-id>/mcp.invoke" --query accessToken -o tsv
+```
 
 **No token → 401 plus a discovery hint:**
 
@@ -174,7 +192,8 @@ Returns only non-sensitive identity claims:
 
 A token that is valid but lacks `mcp.invoke` gets `403` with `WWW-Authenticate: Bearer error="insufficient_scope", …, scope="mcp.invoke"`.
 
-> On Windows PowerShell, replace `$TOKEN` with `$env:TOKEN` and use `curl.exe` instead of the `curl` alias.
+> On Windows PowerShell, `$TOKEN` from the block above works as-is; just use `curl.exe` instead of the `curl` alias
+> (PowerShell's built-in `curl`/`Invoke-WebRequest` doesn't support these flags the same way).
 
 ## 4. Scripts
 
