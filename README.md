@@ -25,11 +25,12 @@ A small, production-shaped [Model Context Protocol](https://modelcontextprotocol
 
 ## 1. Entra ID app registrations
 
-You need two registrations: the **API** (this server) and the **client** (whatever calls it).
+You need two registrations: the **API** (this server) and the **client** (whatever calls it). Create them either with the
+portal steps in **1a–1b** or with one of the CLI scripts after those steps.
 
 ### 1a. API app registration — expose the scope
 
-1. Entra admin center → **App registrations** → **New registration**. Name it e.g. `mcp-server-api`. Register.
+1. Entra admin center → **App registrations** → **New registration**. Name it e.g. `simple-mcp-server-api`. Register.
 2. Note the **Application (client) ID** and **Directory (tenant) ID**.
 3. **Expose an API** → **Add** next to *Application ID URI*. Accept the default `api://<api-client-id>` (or set a custom URI) → **Save**.
 4. **Add a scope**:
@@ -44,20 +45,131 @@ No client secret or certificate is needed — this server only **validates** tok
 
 ### 1b. Client app registration — PKCE
 
-1. **New registration**, name e.g. `mcp-client`.
+1. **New registration**, name e.g. `simple-mcp-server-client`.
 2. **Authentication** → **Add a platform**:
    - Desktop/CLI clients (the usual MCP case): choose **Mobile and desktop applications** and add the redirect URI `http://localhost:<port>/callback` (public client, Authorization Code + **PKCE**, no secret). Set *Allow public client flows* to **Yes**.
    - Browser-based clients: choose **Single-page application** with your app's redirect URI — SPA registrations enforce PKCE automatically.
-3. **API permissions** → **Add a permission** → **My APIs** → select `mcp-server-api` → **Delegated permissions** → check `mcp.invoke` → **Add permissions**. Grant admin consent if your tenant requires it.
+3. **API permissions** → **Add a permission** → **My APIs** → select `simple-mcp-server-api` → **Delegated permissions** → check `mcp.invoke` → **Add permissions**. Grant admin consent if your tenant requires it.
 
-   Steps 1–3 as Azure CLI instead of the portal (run `az login` first; you need rights to manage app registrations, e.g. **Application Administrator**):
+   **CLI alternative — create both registrations end-to-end:** skip the portal steps in **1a–1b** and run one of the
+   scripts below. They require `az login` as a user allowed to create app registrations and grant tenant-wide admin
+   consent, such as **Application Administrator** or **Cloud Application Administrator** (some tenants require a higher
+   privileged role for admin consent). The scripts create no client secrets; they create service principals so the
+   delegated permission grant and admin consent can be applied.
 
-   ```shell
-   mcpServerApp="<api-client-id>"     # Application (client) ID from 1a, step 2
-   mcpClientApp="<client-app-id>"     # Application (client) ID of mcp-client from step 1 above
-   mcpServerScopeId=$(az ad app show --id $mcpServerApp --query "api.oauth2PermissionScopes[?value=='mcp.invoke'].id" -o tsv)
-   az ad app permission add --id $mcpClientApp --api $mcpServerApp --api-permissions $mcpServerScopeId=Scope
-   az ad app permission grant --id $mcpClientApp --api $mcpServerApp --scope $mcpServerScopeId
+   **PowerShell:**
+
+   ```powershell
+   # Create the API app registration and expose api://<api-app-id>/mcp.invoke.
+   $apiDisplayName = "simple-mcp-server-api"
+   $clientDisplayName = "simple-mcp-server-client"
+   $redirectUri = "http://localhost:3000/callback"
+   $scopeName = "mcp.invoke"
+
+   $apiAppId = az ad app create --display-name $apiDisplayName --query appId -o tsv
+   $apiObjectId = az ad app show --id $apiAppId --query id -o tsv
+   az ad sp create --id $apiAppId | Out-Null
+
+   $scopeId = [guid]::NewGuid().ToString()
+   $identifierUri = "api://$apiAppId"
+   $apiPatch = @{
+     identifierUris = @($identifierUri)
+     api = @{
+       requestedAccessTokenVersion = 2
+       oauth2PermissionScopes = @(
+         @{
+           id = $scopeId
+           value = $scopeName
+           type = "User"
+           isEnabled = $true
+           adminConsentDisplayName = "Invoke MCP tools"
+           adminConsentDescription = "Allows the app to invoke MCP tools on behalf of the signed-in user."
+           userConsentDisplayName = "Invoke MCP tools"
+           userConsentDescription = "Allows the app to invoke MCP tools on your behalf."
+         }
+       )
+     }
+   } | ConvertTo-Json -Depth 10 -Compress
+
+   az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$apiObjectId" --body $apiPatch
+
+   # Create the public client app for Authorization Code + PKCE.
+   $clientAppId = az ad app create `
+     --display-name $clientDisplayName `
+     --public-client-redirect-uris $redirectUri `
+     --is-fallback-public-client true `
+     --query appId -o tsv
+   az ad sp create --id $clientAppId | Out-Null
+
+   # Grant the client delegated access to the API scope, then admin-consent it.
+   az ad app permission add --id $clientAppId --api $apiAppId --api-permissions "$scopeId=Scope"
+   az ad app permission admin-consent --id $clientAppId
+
+   Write-Host "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
+   Write-Host "API app ID = $apiAppId"
+   Write-Host "ENTRA_AUDIENCE = $identifierUri"
+   Write-Host "MCP_REQUIRED_SCOPE = $scopeName"
+   Write-Host "Client app ID = $clientAppId"
+   Write-Host "Requested scope = $identifierUri/$scopeName"
+   ```
+
+   **Bash:**
+
+   ```bash
+   # Create the API app registration and expose api://<api-app-id>/mcp.invoke.
+   apiDisplayName="simple-mcp-server-api"
+   clientDisplayName="simple-mcp-server-client"
+   redirectUri="http://localhost:3000/callback"
+   scopeName="mcp.invoke"
+
+   apiAppId=$(az ad app create --display-name "$apiDisplayName" --query appId -o tsv)
+   apiObjectId=$(az ad app show --id "$apiAppId" --query id -o tsv)
+   az ad sp create --id "$apiAppId" >/dev/null
+
+   scopeId=$(uuidgen)
+   identifierUri="api://$apiAppId"
+   apiPatch=$(cat <<JSON
+   {
+     "identifierUris": ["$identifierUri"],
+     "api": {
+       "requestedAccessTokenVersion": 2,
+       "oauth2PermissionScopes": [
+         {
+           "id": "$scopeId",
+           "value": "$scopeName",
+           "type": "User",
+           "isEnabled": true,
+           "adminConsentDisplayName": "Invoke MCP tools",
+           "adminConsentDescription": "Allows the app to invoke MCP tools on behalf of the signed-in user.",
+           "userConsentDisplayName": "Invoke MCP tools",
+           "userConsentDescription": "Allows the app to invoke MCP tools on your behalf."
+         }
+       ]
+     }
+   }
+   JSON
+   )
+
+   az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$apiObjectId" --body "$apiPatch"
+
+   # Create the public client app for Authorization Code + PKCE.
+   clientAppId=$(az ad app create \
+     --display-name "$clientDisplayName" \
+     --public-client-redirect-uris "$redirectUri" \
+     --is-fallback-public-client true \
+     --query appId -o tsv)
+   az ad sp create --id "$clientAppId" >/dev/null
+
+   # Grant the client delegated access to the API scope, then admin-consent it.
+   az ad app permission add --id "$clientAppId" --api "$apiAppId" --api-permissions "$scopeId=Scope"
+   az ad app permission admin-consent --id "$clientAppId"
+
+   echo "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
+   echo "API app ID = $apiAppId"
+   echo "ENTRA_AUDIENCE = $identifierUri"
+   echo "MCP_REQUIRED_SCOPE = $scopeName"
+   echo "Client app ID = $clientAppId"
+   echo "Requested scope = $identifierUri/$scopeName"
    ```
 
 ### 1c. Token audience — the part people get wrong
@@ -65,8 +177,10 @@ No client secret or certificate is needed — this server only **validates** tok
 When the client requests a token it must ask for the **API's** scope, not Microsoft Graph:
 
 ```
-scope = api://<api-client-id>/mcp.invoke offline_access
+scope = <Requested scope from the script or portal> offline_access
 ```
+
+For the default setup above, that scope is `api://<api-client-id>/mcp.invoke`.
 
 That produces a v2 access token with:
 
@@ -74,7 +188,9 @@ That produces a v2 access token with:
 - `iss` = `https://login.microsoftonline.com/<tenant-id>/v2.0`
 - `scp` containing `mcp.invoke`
 
-Set `ENTRA_AUDIENCE` to whatever your tokens actually carry in `aud`. If you are unsure, decode a token at [jwt.ms](https://jwt.ms) and copy the `aud` value. You may list both forms, comma-separated:
+Set `ENTRA_AUDIENCE` to whatever your tokens actually carry in `aud`. If you used the CLI script, start with the printed
+`ENTRA_AUDIENCE` value (`api://<api-client-id>`). If you are unsure, decode a token at [jwt.ms](https://jwt.ms) and copy
+the `aud` value. You may list both forms, comma-separated:
 
 ```
 ENTRA_AUDIENCE=api://11111111-1111-1111-1111-111111111111,11111111-1111-1111-1111-111111111111
@@ -86,7 +202,7 @@ ENTRA_AUDIENCE=api://11111111-1111-1111-1111-111111111111,11111111-1111-1111-111
 
 ```bash
 npm install
-cp .env.example .env   # then fill in ENTRA_TENANT_ID and ENTRA_AUDIENCE
+cp .env.example .env   # then paste the ENTRA_* / MCP_REQUIRED_SCOPE values printed in section 1
 npm run dev            # watch mode
 # or
 npm run build && npm start
@@ -96,9 +212,9 @@ Environment variables (all documented in `.env.example`):
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `ENTRA_TENANT_ID` | yes | – | Directory (tenant) ID |
-| `ENTRA_AUDIENCE` | yes | – | Expected `aud` value(s), comma-separated |
-| `MCP_REQUIRED_SCOPE` | no | `mcp.invoke` | Delegated scope required for every MCP call |
+| `ENTRA_TENANT_ID` | yes | – | Directory (tenant) ID; printed by the CLI scripts |
+| `ENTRA_AUDIENCE` | yes | – | Expected `aud` value(s), comma-separated; start with the printed `api://<api-client-id>` value |
+| `MCP_REQUIRED_SCOPE` | no | `mcp.invoke` | Delegated scope required for every MCP call; printed by the CLI scripts |
 | `ENTRA_ISSUER` | no | `https://login.microsoftonline.com/<tenant>/v2.0` | Expected `iss` |
 | `ENTRA_JWKS_URI` | no | tenant v2 `discovery/v2.0/keys` | Signing key source |
 | `PORT` / `HOST` | no | `3000` / `127.0.0.1` | Listener |
@@ -117,15 +233,15 @@ No credentials are stored in code; `.env` is git-ignored.
 
 ## 3. Verify with curl
 
-Uses the registrations from section 1: `<tenant-id>` is the API's Directory (tenant) ID (1a, step 2), `<api-client-id>` is
-its Application (client) ID, and the Azure CLI itself stands in for `mcp-client` — it must already have been granted
-`mcp.invoke` on the API registration (1b, step 3). In production your real MCP client performs the Authorization Code +
-PKCE flow described above instead of this shortcut.
+Uses the values from section 1: `<tenant-id>` is the printed `ENTRA_TENANT_ID`, and `<requested-scope>` is the printed
+`Requested scope` (`api://<api-client-id>/mcp.invoke` in the default setup). For this quick manual check, Azure CLI asks
+for the same delegated scope your MCP client will request. If your tenant blocks Azure CLI from requesting that API scope,
+use your client app's Authorization Code + PKCE flow instead.
 
 ```bash
 az login --tenant <tenant-id>
 TOKEN=$(az account get-access-token \
-  --scope "api://<api-client-id>/mcp.invoke" \
+  --scope "<requested-scope>" \
   --query accessToken -o tsv)
 ```
 
@@ -133,7 +249,7 @@ PowerShell equivalent:
 
 ```powershell
 az login --tenant <tenant-id>
-$TOKEN = az account get-access-token --scope "api://<api-client-id>/mcp.invoke" --query accessToken -o tsv
+$TOKEN = az account get-access-token --scope "<requested-scope>" --query accessToken -o tsv
 ```
 
 **No token → 401 plus a discovery hint:**
@@ -236,10 +352,11 @@ secrets (it only *validates* tokens). See the plan for details.
 azd auth login
 azd env new mcp-dev
 
-# Non-secret configuration. Without real values the server starts but rejects every token.
-azd env set ENTRA_TENANT_ID   "<your-tenant-id>"
-azd env set ENTRA_AUDIENCE    "api://<your-api-client-id>"
-azd env set MCP_REQUIRED_SCOPE "mcp.invoke"
+# Non-secret configuration. Use the values printed by the section 1 CLI script,
+# or the equivalent values from your portal-created app registrations.
+azd env set ENTRA_TENANT_ID   "<ENTRA_TENANT_ID>"
+azd env set ENTRA_AUDIENCE    "<ENTRA_AUDIENCE>"
+azd env set MCP_REQUIRED_SCOPE "<MCP_REQUIRED_SCOPE>"
 
 azd up
 ```
