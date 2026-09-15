@@ -51,126 +51,130 @@ No client secret or certificate is needed — this server only **validates** tok
    - Browser-based clients: choose **Single-page application** with your app's redirect URI — SPA registrations enforce PKCE automatically.
 3. **API permissions** → **Add a permission** → **My APIs** → select `simple-mcp-server-api` → **Delegated permissions** → check `mcp.invoke` → **Add permissions**. Grant admin consent if your tenant requires it.
 
-   **CLI alternative — create both registrations end-to-end:** skip the portal steps in **1a–1b** and run one of the
-   scripts below. They require `az login` as a user allowed to create app registrations and grant tenant-wide admin
-   consent, such as **Application Administrator** or **Cloud Application Administrator** (some tenants require a higher
-   privileged role for admin consent). The scripts create no client secrets; they create service principals so the
-   delegated permission grant and admin consent can be applied.
+### CLI alternative to 1a–1b — create both registrations end-to-end
 
-   **PowerShell:**
+Skip the portal steps in **1a–1b** and run one of the scripts below. They require `az login` as a user allowed to create app registrations and grant tenant-wide admin
+consent, such as **Application Administrator** or **Cloud Application Administrator** (some tenants require a higher
+privileged role for admin consent). The scripts create no client secrets; they create service principals so the
+delegated permission grant and admin consent can be applied. They configure the public-client **Mobile and desktop
+applications** redirect for the desktop/CLI PKCE case only; SPA registrations should still follow the portal steps in
+**1b**. The scripts run `az ad app permission admin-consent` even though the scope type is `User`, so setup also works in
+tenants that restrict user self-consent.
 
-   ```powershell
-   # Create the API app registration and expose api://<api-app-id>/mcp.invoke.
-   $apiDisplayName = "simple-mcp-server-api"
-   $clientDisplayName = "simple-mcp-server-client"
-   $redirectUri = "http://localhost:3000/callback"
-   $scopeName = "mcp.invoke"
+**PowerShell:**
 
-   $apiAppId = az ad app create --display-name $apiDisplayName --query appId -o tsv
-   $apiObjectId = az ad app show --id $apiAppId --query id -o tsv
-   az ad sp create --id $apiAppId | Out-Null
+```powershell
+# Create the API app registration and expose api://<api-app-id>/mcp.invoke.
+$apiDisplayName = "simple-mcp-server-api"
+$clientDisplayName = "simple-mcp-server-client"
+$redirectUri = "http://localhost:3000/callback"
+$scopeName = "mcp.invoke"
 
-   $scopeId = [guid]::NewGuid().ToString()
-   $identifierUri = "api://$apiAppId"
-   $apiPatch = @{
-     identifierUris = @($identifierUri)
-     api = @{
-       requestedAccessTokenVersion = 2
-       oauth2PermissionScopes = @(
-         @{
-           id = $scopeId
-           value = $scopeName
-           type = "User"
-           isEnabled = $true
-           adminConsentDisplayName = "Invoke MCP tools"
-           adminConsentDescription = "Allows the app to invoke MCP tools on behalf of the signed-in user."
-           userConsentDisplayName = "Invoke MCP tools"
-           userConsentDescription = "Allows the app to invoke MCP tools on your behalf."
-         }
-       )
-     }
-   } | ConvertTo-Json -Depth 10 -Compress
+$apiAppId = az ad app create --display-name $apiDisplayName --query appId -o tsv
+$apiObjectId = az ad app show --id $apiAppId --query id -o tsv
+az ad sp create --id $apiAppId | Out-Null
 
-   az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$apiObjectId" --body $apiPatch
+$scopeId = [guid]::NewGuid().ToString()
+$identifierUri = "api://$apiAppId"
+$apiPatch = @{
+  identifierUris = @($identifierUri)
+  api = @{
+    requestedAccessTokenVersion = 2
+    oauth2PermissionScopes = @(
+      @{
+        id = $scopeId
+        value = $scopeName
+        type = "User"
+        isEnabled = $true
+        adminConsentDisplayName = "Invoke MCP tools"
+        adminConsentDescription = "Allows the app to invoke MCP tools on behalf of the signed-in user."
+        userConsentDisplayName = "Invoke MCP tools"
+        userConsentDescription = "Allows the app to invoke MCP tools on your behalf."
+      }
+    )
+  }
+} | ConvertTo-Json -Depth 10 -Compress
 
-   # Create the public client app for Authorization Code + PKCE.
-   $clientAppId = az ad app create `
-     --display-name $clientDisplayName `
-     --public-client-redirect-uris $redirectUri `
-     --is-fallback-public-client true `
-     --query appId -o tsv
-   az ad sp create --id $clientAppId | Out-Null
+az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$apiObjectId" --body $apiPatch
 
-   # Grant the client delegated access to the API scope, then admin-consent it.
-   az ad app permission add --id $clientAppId --api $apiAppId --api-permissions "$scopeId=Scope"
-   az ad app permission admin-consent --id $clientAppId
+# Create the public client app for Authorization Code + PKCE.
+$clientAppId = az ad app create `
+  --display-name $clientDisplayName `
+  --public-client-redirect-uris $redirectUri `
+  --is-fallback-public-client true `
+  --query appId -o tsv
+az ad sp create --id $clientAppId | Out-Null
 
-   Write-Host "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
-   Write-Host "API app ID = $apiAppId"
-   Write-Host "ENTRA_AUDIENCE = $identifierUri"
-   Write-Host "MCP_REQUIRED_SCOPE = $scopeName"
-   Write-Host "Client app ID = $clientAppId"
-   Write-Host "Requested scope = $identifierUri/$scopeName"
-   ```
+# Grant the client delegated access to the API scope, then admin-consent it.
+az ad app permission add --id $clientAppId --api $apiAppId --api-permissions "$scopeId=Scope"
+az ad app permission admin-consent --id $clientAppId
 
-   **Bash:**
+Write-Host "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
+Write-Host "API app ID = $apiAppId"
+Write-Host "ENTRA_AUDIENCE = $identifierUri"
+Write-Host "MCP_REQUIRED_SCOPE = $scopeName"
+Write-Host "Client app ID = $clientAppId"
+Write-Host "Requested scope = $identifierUri/$scopeName"
+```
 
-   ```bash
-   # Create the API app registration and expose api://<api-app-id>/mcp.invoke.
-   apiDisplayName="simple-mcp-server-api"
-   clientDisplayName="simple-mcp-server-client"
-   redirectUri="http://localhost:3000/callback"
-   scopeName="mcp.invoke"
+**Bash:**
 
-   apiAppId=$(az ad app create --display-name "$apiDisplayName" --query appId -o tsv)
-   apiObjectId=$(az ad app show --id "$apiAppId" --query id -o tsv)
-   az ad sp create --id "$apiAppId" >/dev/null
+```bash
+# Create the API app registration and expose api://<api-app-id>/mcp.invoke.
+apiDisplayName="simple-mcp-server-api"
+clientDisplayName="simple-mcp-server-client"
+redirectUri="http://localhost:3000/callback"
+scopeName="mcp.invoke"
 
-   scopeId=$(uuidgen)
-   identifierUri="api://$apiAppId"
-   apiPatch=$(cat <<JSON
-   {
-     "identifierUris": ["$identifierUri"],
-     "api": {
-       "requestedAccessTokenVersion": 2,
-       "oauth2PermissionScopes": [
-         {
-           "id": "$scopeId",
-           "value": "$scopeName",
-           "type": "User",
-           "isEnabled": true,
-           "adminConsentDisplayName": "Invoke MCP tools",
-           "adminConsentDescription": "Allows the app to invoke MCP tools on behalf of the signed-in user.",
-           "userConsentDisplayName": "Invoke MCP tools",
-           "userConsentDescription": "Allows the app to invoke MCP tools on your behalf."
-         }
-       ]
-     }
-   }
-   JSON
-   )
+apiAppId=$(az ad app create --display-name "$apiDisplayName" --query appId -o tsv)
+apiObjectId=$(az ad app show --id "$apiAppId" --query id -o tsv)
+az ad sp create --id "$apiAppId" >/dev/null
 
-   az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$apiObjectId" --body "$apiPatch"
+scopeId=$(uuidgen)
+identifierUri="api://$apiAppId"
+apiPatch=$(cat <<JSON
+{
+  "identifierUris": ["$identifierUri"],
+  "api": {
+    "requestedAccessTokenVersion": 2,
+    "oauth2PermissionScopes": [
+      {
+        "id": "$scopeId",
+        "value": "$scopeName",
+        "type": "User",
+        "isEnabled": true,
+        "adminConsentDisplayName": "Invoke MCP tools",
+        "adminConsentDescription": "Allows the app to invoke MCP tools on behalf of the signed-in user.",
+        "userConsentDisplayName": "Invoke MCP tools",
+        "userConsentDescription": "Allows the app to invoke MCP tools on your behalf."
+      }
+    ]
+  }
+}
+JSON
+)
 
-   # Create the public client app for Authorization Code + PKCE.
-   clientAppId=$(az ad app create \
-     --display-name "$clientDisplayName" \
-     --public-client-redirect-uris "$redirectUri" \
-     --is-fallback-public-client true \
-     --query appId -o tsv)
-   az ad sp create --id "$clientAppId" >/dev/null
+az rest --method PATCH --uri "https://graph.microsoft.com/v1.0/applications/$apiObjectId" --body "$apiPatch"
 
-   # Grant the client delegated access to the API scope, then admin-consent it.
-   az ad app permission add --id "$clientAppId" --api "$apiAppId" --api-permissions "$scopeId=Scope"
-   az ad app permission admin-consent --id "$clientAppId"
+# Create the public client app for Authorization Code + PKCE.
+clientAppId=$(az ad app create \
+  --display-name "$clientDisplayName" \
+  --public-client-redirect-uris "$redirectUri" \
+  --is-fallback-public-client true \
+  --query appId -o tsv)
+az ad sp create --id "$clientAppId" >/dev/null
 
-   echo "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
-   echo "API app ID = $apiAppId"
-   echo "ENTRA_AUDIENCE = $identifierUri"
-   echo "MCP_REQUIRED_SCOPE = $scopeName"
-   echo "Client app ID = $clientAppId"
-   echo "Requested scope = $identifierUri/$scopeName"
-   ```
+# Grant the client delegated access to the API scope, then admin-consent it.
+az ad app permission add --id "$clientAppId" --api "$apiAppId" --api-permissions "$scopeId=Scope"
+az ad app permission admin-consent --id "$clientAppId"
+
+echo "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
+echo "API app ID = $apiAppId"
+echo "ENTRA_AUDIENCE = $identifierUri"
+echo "MCP_REQUIRED_SCOPE = $scopeName"
+echo "Client app ID = $clientAppId"
+echo "Requested scope = $identifierUri/$scopeName"
+```
 
 ### 1c. Token audience — the part people get wrong
 
