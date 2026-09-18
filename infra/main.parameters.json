@@ -17,6 +17,18 @@
     "mcpRequiredScope": {
       "value": "${MCP_REQUIRED_SCOPE=mcp.invoke}"
     },
+    "createEntraAppRegistrations": {
+      "value": "${CREATE_ENTRA_APP_REGISTRATIONS=false}"
+    },
+    "entraApiDisplayName": {
+      "value": "${ENTRA_API_DISPLAY_NAME=simple-mcp-server-api}"
+    },
+    "entraClientDisplayName": {
+      "value": "${ENTRA_CLIENT_DISPLAY_NAME=simple-mcp-server-client}"
+    },
+    "entraClientRedirectUri": {
+      "value": "${ENTRA_CLIENT_REDIRECT_URI=http://localhost:3000/callback}"
+    },
     "entraIssuer": {
       "value": "${ENTRA_ISSUER=}"
     },

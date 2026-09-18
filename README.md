@@ -21,6 +21,7 @@ A small, production-shaped [Model Context Protocol](https://modelcontextprotocol
 | `Dockerfile` | Multi-stage production container image (non-root) |
 | `azure.yaml` | Azure Developer CLI service definition |
 | `infra/` | Bicep infrastructure (AVM modules) for Azure Container Apps |
+| `infra/entra/` | Bicep module (Microsoft Graph extension) that `azd` can use to create the two Entra ID app registrations |
 | `.azure/deployment-plan.md` | Deployment plan and architecture decisions |
 
 ## 1. Entra ID app registrations
@@ -175,6 +176,40 @@ echo "MCP_REQUIRED_SCOPE = $scopeName"
 echo "Client app ID = $clientAppId"
 echo "Requested scope = $identifierUri/$scopeName"
 ```
+
+### Bicep alternative to 1a–1b — declarative, via `azd` and the Microsoft Graph Bicep extension
+
+A third option: [`infra/entra/app-registrations.bicep`](infra/entra/app-registrations.bicep) creates and configures
+both registrations declaratively, using the [Microsoft Graph Bicep
+extension](https://learn.microsoft.com/en-us/graph/templates/bicep/overview) instead of `az ad app` commands. It
+creates the same objects as the CLI scripts above — API app with the `mcp.invoke` scope, public-client app with the
+desktop/CLI PKCE redirect, service principals for both, and the delegated permission grant with tenant-wide admin
+consent — and is idempotent (`uniqueName` lets you re-run it safely).
+
+Unlike the portal/CLI options, this isn't a separate step: it's a module wired into
+[`infra/main.bicep`](infra/main.bicep) behind the `createEntraAppRegistrations` parameter, so it deploys as part of
+the normal **section 5** `azd provision` / `azd up` flow — no standalone `az` invocation needed. When enabled, the
+container app's `ENTRA_TENANT_ID` / `ENTRA_AUDIENCE` env vars are set automatically from the app it just created,
+so you can skip setting `ENTRA_TENANT_ID` / `ENTRA_AUDIENCE` by hand:
+
+```bash
+azd env set CREATE_ENTRA_APP_REGISTRATIONS true
+# Optional overrides — defaults shown:
+azd env set ENTRA_API_DISPLAY_NAME simple-mcp-server-api
+azd env set ENTRA_CLIENT_DISPLAY_NAME simple-mcp-server-client
+azd env set ENTRA_CLIENT_REDIRECT_URI http://localhost:3000/callback
+
+azd up
+```
+
+Requires the deploying principal to be allowed to create app registrations and grant tenant-wide admin consent (e.g.
+Application Administrator / Cloud Application Administrator — some tenants require a higher-privileged role for
+admin consent), in addition to the Azure RBAC role `azd` otherwise needs. Outputs mirror the CLI scripts' printed
+values: `ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`, `ENTRA_API_APP_ID`, `ENTRA_CLIENT_APP_ID`. By default the API app gets
+no `identifierUris` (Application ID URI) — Entra ID always accepts the bare API app ID as an implicit identifier, so
+`ENTRA_AUDIENCE` defaults to that GUID (see 1c below). SPA client registrations still need the portal steps in **1b**.
+Leave `createEntraAppRegistrations` at its default (`false`) to keep using registrations created by the portal or
+CLI scripts above, as described in the rest of section 5.
 
 ### 1c. Token audience — the part people get wrong
 
@@ -348,7 +383,7 @@ secrets (it only *validates* tokens). See the plan for details.
 
 - [Azure Developer CLI](https://aka.ms/azd-install) (`azd`)
 - Docker (used by `azd` to build the image)
-- An Azure subscription, and the Entra registrations from section 1
+- An Azure subscription, and the Entra registrations from section 1 (or let `azd` create them — see below)
 
 ### Deploy
 
@@ -362,6 +397,14 @@ azd env set ENTRA_TENANT_ID   "<ENTRA_TENANT_ID>"
 azd env set ENTRA_AUDIENCE    "<ENTRA_AUDIENCE>"
 azd env set MCP_REQUIRED_SCOPE "<MCP_REQUIRED_SCOPE>"
 
+azd up
+```
+
+Alternatively, skip creating the registrations beforehand and have `azd` do it as part of `provision` (see the
+"Bicep alternative to 1a–1b" box in section 1):
+
+```bash
+azd env set CREATE_ENTRA_APP_REGISTRATIONS true
 azd up
 ```
 
@@ -391,7 +434,8 @@ curl -s "$SERVICE_MCP_URI/.well-known/oauth-protected-resource"
 - **Cold starts are expected.** `minReplicas: 0` is deliberate; the first request after an idle period pays a container
   start. Set `minReplicas: 1` in `infra/main.bicep` to trade cost for latency.
 - **Entra parameters default to placeholder GUIDs** so the infrastructure can be provisioned before the registrations
-  exist. The server will reject all tokens until real values are set with `azd env set` and redeployed.
+  exist. The server will reject all tokens until real values are set with `azd env set` and redeployed, or until
+  `CREATE_ENTRA_APP_REGISTRATIONS` is set to `true` so `azd` creates them for you.
 
 ## Security notes
 

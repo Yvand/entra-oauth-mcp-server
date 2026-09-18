@@ -9,14 +9,26 @@ param environmentName string
 @description('Azure region for all resources.')
 param location string
 
-@description('Microsoft Entra directory (tenant) ID used to validate access tokens. Placeholder by default — replace before the server can accept real traffic.')
+@description('Microsoft Entra directory (tenant) ID used to validate access tokens. Placeholder by default — replace before the server can accept real traffic, or set createEntraAppRegistrations to true to have azd create it for you.')
 param entraTenantId string = '00000000-0000-0000-0000-000000000000'
 
-@description('Expected "aud" claim of incoming access tokens, e.g. api://<api-client-id>. Comma-separated list allowed. Placeholder by default.')
+@description('Expected "aud" claim of incoming access tokens, e.g. api://<api-client-id>. Comma-separated list allowed. Placeholder by default. Ignored when createEntraAppRegistrations is true.')
 param entraAudience string = 'api://00000000-0000-0000-0000-000000000000'
 
 @description('Delegated scope a caller must hold to invoke MCP tools.')
 param mcpRequiredScope string = 'mcp.invoke'
+
+@description('When true, azd creates and configures the API and client Entra ID app registrations (see infra/entra/app-registrations.bicep) as part of provisioning, instead of requiring them to be created beforehand. Requires the deploying principal to be allowed to create app registrations and grant tenant-wide admin consent.')
+param createEntraAppRegistrations bool = false
+
+@description('Display name for the API app registration. Only used when createEntraAppRegistrations is true.')
+param entraApiDisplayName string = 'simple-mcp-server-api'
+
+@description('Display name for the public-client (desktop/CLI, PKCE) app registration. Only used when createEntraAppRegistrations is true.')
+param entraClientDisplayName string = 'simple-mcp-server-client'
+
+@description('Redirect URI registered on the public client for the Authorization Code + PKCE flow. Only used when createEntraAppRegistrations is true.')
+param entraClientRedirectUri string = 'http://localhost:3000/callback'
 
 @description('Optional override for the OAuth issuer. Empty means the app derives it from the tenant ID.')
 param entraIssuer string = ''
@@ -71,6 +83,23 @@ resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   location: location
   tags: tags
 }
+
+// Optional: create/configure the Entra ID app registrations as part of `azd provision` /
+// `azd up`, instead of requiring them to already exist. No `scope:` needed — Microsoft
+// Graph objects aren't Azure resources, so the module runs at the same subscription scope
+// as this file, independent of the resource group above.
+module entraAppRegistrations 'entra/app-registrations.bicep' = if (createEntraAppRegistrations) {
+  name: 'entra-apps-${resourceToken}'
+  params: {
+    apiDisplayName: entraApiDisplayName
+    clientDisplayName: entraClientDisplayName
+    redirectUri: entraClientRedirectUri
+    scopeName: mcpRequiredScope
+  }
+}
+
+var effectiveEntraTenantId = createEntraAppRegistrations ? entraAppRegistrations!.outputs.ENTRA_TENANT_ID : entraTenantId
+var effectiveEntraAudience = createEntraAppRegistrations ? entraAppRegistrations!.outputs.ENTRA_AUDIENCE : entraAudience
 
 module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.16.1' = {
   name: 'log-${resourceToken}'
@@ -193,8 +222,8 @@ module containerApp 'br/public:avm/res/app/container-app:0.23.0' = {
           { name: 'PORT', value: string(containerPort) }
           // Required: the app defaults to 127.0.0.1 and would accept no external traffic.
           { name: 'HOST', value: '0.0.0.0' }
-          { name: 'ENTRA_TENANT_ID', value: entraTenantId }
-          { name: 'ENTRA_AUDIENCE', value: entraAudience }
+          { name: 'ENTRA_TENANT_ID', value: effectiveEntraTenantId }
+          { name: 'ENTRA_AUDIENCE', value: effectiveEntraAudience }
           { name: 'MCP_REQUIRED_SCOPE', value: mcpRequiredScope }
           { name: 'ENTRA_ISSUER', value: entraIssuer }
           { name: 'ENTRA_JWKS_URI', value: entraJwksUri }
@@ -243,6 +272,10 @@ module acrPullRole 'modules/acr-pull-role.bicep' = {
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenant().tenantId
 output AZURE_RESOURCE_GROUP string = resourceGroupName
+output ENTRA_TENANT_ID string = effectiveEntraTenantId
+output ENTRA_AUDIENCE string = effectiveEntraAudience
+output ENTRA_API_APP_ID string = createEntraAppRegistrations ? entraAppRegistrations!.outputs.API_APP_ID : ''
+output ENTRA_CLIENT_APP_ID string = createEntraAppRegistrations ? entraAppRegistrations!.outputs.CLIENT_APP_ID : ''
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.outputs.loginServer
 output AZURE_CONTAINER_REGISTRY_NAME string = containerRegistry.outputs.name
 output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME string = containerAppsEnvironment.outputs.name
