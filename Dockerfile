@@ -3,7 +3,7 @@
 # ---- Build stage -------------------------------------------------------------
 # devDependencies (typescript) are required to compile, so they are installed here
 # and deliberately left behind in the runtime stage.
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY src ./src
 RUN npm run build
 
 # ---- Runtime stage -----------------------------------------------------------
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 ENV NODE_ENV=production \
     PORT=3000 \
@@ -28,7 +28,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 
-# node:20-alpine ships a non-root "node" user (uid 1000); run as it.
+# node:24-alpine ships a non-root "node" user (uid 1000); run as it.
 USER node
 
 EXPOSE 3000

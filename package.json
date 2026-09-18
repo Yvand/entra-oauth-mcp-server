@@ -5,7 +5,7 @@
   "description": "MCP server over Streamable HTTP secured with Microsoft Entra ID OAuth access tokens",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "main": "dist/index.js",
   "scripts": {
@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
-    "@types/node": "^20.14.10",
+    "@types/node": "^24.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"

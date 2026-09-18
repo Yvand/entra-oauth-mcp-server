@@ -39,7 +39,7 @@ to containerization + Azure infrastructure + configuration wiring.
 
 | Component | Type | Technology | Path |
 |---|---|---|---|
-| `mcp` | API (single service) | Node.js 20+/24, TypeScript 5.6 (ESM, NodeNext), Express 4, `@modelcontextprotocol/sdk` 1.30, `jose` 5 | `./` (root) |
+| `mcp` | API (single service) | Node.js 24+, TypeScript 5.6 (ESM, NodeNext), Express 4, `@modelcontextprotocol/sdk` 1.30, `jose` 5 | `./` (root) |
 
 **Codebase scan results**
 
@@ -219,7 +219,7 @@ consumption is 1.5 of 2000 cores (<0.1%).
 
 ### Phase 2: Execution ✅ COMPLETE
 - [x] Research components; pin AVM module versions (from live MCR tag metadata)
-- [x] Generate `Dockerfile` (multi-stage, node:20-alpine, non-root, prod-only deps)
+- [x] Generate `Dockerfile` (multi-stage, node:24-alpine, non-root, prod-only deps)
 - [x] Generate `.dockerignore`
 - [x] Generate `azure.yaml` (`host: containerapp`, service `mcp`)
 - [x] Generate `infra/main.bicep`, `infra/main.parameters.json`, `infra/modules/*.bicep`
@@ -388,7 +388,7 @@ No `azd up`, `azd deploy`, or non-preview `azd provision` was run. Nothing was d
 | File | Purpose | Status |
 |---|---|---|
 | `.azure/deployment-plan.md` | This plan | ✅ |
-| `Dockerfile` | Multi-stage container build (node:20-alpine, non-root `node` user) | ✅ |
+| `Dockerfile` | Multi-stage container build (node:24-alpine, non-root `node` user) | ✅ |
 | `.dockerignore` | Excludes `node_modules`, `dist`, `.env`, `infra`, `test` from build context | ✅ |
 | `azure.yaml` | azd service definition (`mcp`, `host: containerapp`) | ✅ |
 | `infra/main.bicep` | Subscription-scope entry point, AVM modules | ✅ |
@@ -412,7 +412,7 @@ No application source file was changed — `HOST=0.0.0.0` is supplied as an envi
 5. **No Key Vault / App Insights** — justified in §5; easily added if the user wants them.
 6. **ACR Basic is adequate** (single small image, no geo-replication).
 7. **Default Azure-assigned FQDN** (`*.azurecontainerapps.io`) is acceptable; no custom domain or certificate.
-8. **Node 20-alpine base image** for a small attack surface; the app requires Node ≥ 20 and is verified on 24.
+8. **Node 24-alpine base image** for a small attack surface; the app requires Node ≥ 24.
 9. **`azd` 1.34.0 and Docker Desktop (engine 29.7.2) are installed** and were used to validate the artifacts. Note that
    `azd` requires `AZURE_TENANT_ID` as a *process* environment variable on this machine, because the Azure CLI is signed
    into multiple tenants (see §7a).
