@@ -187,7 +187,10 @@ module containerApp 'br/public:avm/res/app/container-app:0.23.0' = {
     }
     ingressExternal: true
     ingressAllowInsecure: false
-    ingressTargetPort: containerPort
+    // On the very first provision the placeholder image (listening on port 80) is used,
+    // so the ingress target port must match it. `azd deploy` re-runs this with
+    // mcpExists=true and the real image, switching the target port to containerPort.
+    ingressTargetPort: mcpExists ? containerPort : 80
     ingressTransport: 'auto'
     scaleSettings: {
       minReplicas: minReplicas
