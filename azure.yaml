@@ -10,5 +10,6 @@ services:
     language: ts
     host: containerapp
     docker:
+      remoteBuild: true
       path: ./Dockerfile
       context: .
