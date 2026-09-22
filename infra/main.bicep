@@ -146,6 +146,9 @@ module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.16.
       destination: 'log-analytics'
       logAnalyticsWorkspaceResourceId: logAnalytics.outputs.resourceId
     }
+    // The MCP container app uses external ingress, so the managed environment
+    // must allow public network access as well.
+    publicNetworkAccess: 'Enabled'
     // The module defaults zoneRedundant to true, which Azure rejects unless the
     // environment is deployed into a subnet (infrastructureSubnetResourceId). This
     // deployment has no VNet, so zone redundancy must be explicitly disabled.
