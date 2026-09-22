@@ -67,6 +67,7 @@ var abbrs = {
   containerAppsEnvironment: 'cae'
   containerApp: 'ca'
   logAnalytics: 'log'
+  managedIdentity: 'id'
 }
 
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -158,6 +159,34 @@ module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.16.
 var derivedBaseUrl = 'https://${containerAppName}.${containerAppsEnvironment.outputs.defaultDomain}'
 var effectiveBaseUrl = empty(publicBaseUrl) ? derivedBaseUrl : publicBaseUrl
 
+// User-assigned identity, created up front so its principal ID exists before the
+// container app does. This lets AcrPull be granted (see acrPullRole below) — and the
+// registries block on the container app wired up — from the very first provision,
+// instead of depending on the container app's system-assigned identity (whose
+// principal ID only exists once that resource has already been created).
+module containerAppIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.6.0' = {
+  name: 'id-${resourceToken}'
+  scope: rg
+  params: {
+    name: '${abbrs.managedIdentity}-${serviceName}-${resourceToken}'
+    location: location
+    tags: tags
+  }
+}
+
+// Granting AcrPull ahead of the container app's creation — rather than after, keyed off
+// a system-assigned identity — is what avoids the "Operation expired" stall that
+// happens when Container Apps validates a not-yet-granted pull credential during
+// revision creation. It also means the registry can be wired up unconditionally below.
+module acrPullRole 'modules/acr-pull-role.bicep' = {
+  name: 'acr-pull-${resourceToken}'
+  scope: rg
+  params: {
+    registryName: containerRegistry.outputs.name
+    principalId: containerAppIdentity.outputs.principalId
+  }
+}
+
 // On the very first provision no image has been pushed yet, so a public
 // placeholder is used; `azd deploy` replaces it immediately afterwards.
 module fetchLatestImage 'modules/fetch-container-image.bicep' = {
@@ -183,14 +212,13 @@ module containerApp 'br/public:avm/res/app/container-app:0.23.0' = {
     })
     environmentResourceId: containerAppsEnvironment.outputs.resourceId
     managedIdentities: {
-      systemAssigned: true
+      userAssignedResourceIds: [
+        containerAppIdentity.outputs.resourceId
+      ]
     }
     ingressExternal: true
     ingressAllowInsecure: false
-    // On the very first provision the placeholder image (listening on port 80) is used,
-    // so the ingress target port must match it. `azd deploy` re-runs this with
-    // mcpExists=true and the real image, switching the target port to containerPort.
-    ingressTargetPort: mcpExists ? containerPort : 80
+    ingressTargetPort: containerPort
     ingressTransport: 'auto'
     scaleSettings: {
       minReplicas: minReplicas
@@ -206,20 +234,14 @@ module containerApp 'br/public:avm/res/app/container-app:0.23.0' = {
         }
       ]
     }
-    // On the first provision the placeholder image is pulled anonymously from
-    // a public registry, and the container app's system identity has not yet
-    // been granted AcrPull (that role assignment depends on this module's
-    // output, so it can only run afterwards). Referencing the ACR registry
-    // here unconditionally makes Container Apps validate that (not-yet-
-    // granted) credential during revision creation, which stalls and times
-    // out with "Operation expired". Only wire up the registry once the real
-    // image (and therefore the AcrPull-authenticated pull) is actually used.
-    registries: mcpExists ? [
+    // The identity was already granted AcrPull above (before this resource exists),
+    // so the registry can be wired up unconditionally — no more first-provision stall.
+    registries: [
       {
         server: containerRegistry.outputs.loginServer
-        identity: 'system'
+        identity: containerAppIdentity.outputs.resourceId
       }
-    ] : []
+    ]
     containers: [
       {
         name: serviceName
@@ -240,9 +262,11 @@ module containerApp 'br/public:avm/res/app/container-app:0.23.0' = {
           { name: 'ENTRA_JWKS_URI', value: entraJwksUri }
           { name: 'PUBLIC_BASE_URL', value: effectiveBaseUrl }
         ]
-        // Custom probes target /healthz, which only the real image serves.
-        // They are omitted on the first provision, while the placeholder runs.
-        probes: mcpExists ? [
+        // Custom probes target /healthz. They're defined unconditionally; on the
+        // very first provision the placeholder image doesn't serve it, so the
+        // revision briefly reports unhealthy until `azd deploy` (run right after,
+        // within the same `azd up`) replaces it with the real image.
+        probes: [
           {
             type: 'Liveness'
             httpGet: {
@@ -263,21 +287,15 @@ module containerApp 'br/public:avm/res/app/container-app:0.23.0' = {
             periodSeconds: 10
             failureThreshold: 3
           }
-        ] : []
+        ]
       }
     ]
   }
-}
-
-// Separate module so the role assignment can consume the container app's principal ID
-// without creating a circular dependency between the app and the registry.
-module acrPullRole 'modules/acr-pull-role.bicep' = {
-  name: 'acr-pull-${resourceToken}'
-  scope: rg
-  params: {
-    registryName: containerRegistry.outputs.name
-    principalId: containerApp.outputs.systemAssignedMIPrincipalId!
-  }
+  // Ensures AcrPull is fully granted before the container app attempts to pull
+  // the (real or placeholder) image using the user-assigned identity.
+  dependsOn: [
+    acrPullRole
+  ]
 }
 
 output AZURE_LOCATION string = location
