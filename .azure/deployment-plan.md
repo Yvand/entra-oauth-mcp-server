@@ -131,7 +131,7 @@ Bicep parameters → container env vars. None are secrets.
 | Bicep param | Env var | Value / source |
 |---|---|---|
 | `entraTenantId` | `ENTRA_TENANT_ID` | **User-supplied** (Entra directory ID) |
-| `entraAudience` | `ENTRA_AUDIENCE` | **User-supplied** (`api://<api-client-id>`, comma-separated list allowed) |
+| `entraAudience` | `ENTRA_AUDIENCE` | **User-supplied** (API application/client ID as a bare GUID; comma-separated list allowed) |
 | `mcpRequiredScope` | `MCP_REQUIRED_SCOPE` | Default `mcp.invoke` |
 | `entraIssuer` *(optional)* | `ENTRA_ISSUER` | Empty → app derives from tenant ID |
 | `entraJwksUri` *(optional)* | `ENTRA_JWKS_URI` | Empty → app derives from tenant ID |
@@ -435,7 +435,7 @@ No application source file was changed — `HOST=0.0.0.0` is supplied as an envi
 | **`azd` CLI** | Required by the selected recipe to run `azd up` | ✅ **Installed** — `azd version 1.34.0` |
 | **Docker** | Required by `azd` to build the container image | ✅ **Installed** — Docker Desktop 4.90, engine 29.7.2, running |
 | **`ENTRA_TENANT_ID`** | Runtime token validation (issuer/JWKS) | ⚠️ Placeholder default in Bicep; set via `azd env set ENTRA_TENANT_ID <id>` |
-| **`ENTRA_AUDIENCE`** | Expected `aud` claim | ⚠️ Placeholder default in Bicep; set via `azd env set ENTRA_AUDIENCE api://<id>` |
+| **`ENTRA_AUDIENCE`** | Expected `aud` claim | ⚠️ Placeholder default in Bicep; set to the API application/client ID as a bare GUID |
 | `MCP_REQUIRED_SCOPE` | Required delegated scope | Defaults to `mcp.invoke` |
 | `PUBLIC_BASE_URL` | OAuth metadata / `WWW-Authenticate` hint | Auto-derived from the environment's default domain; override only for a custom domain |
 | Environment name | `azd` env + resource naming | Suggest `mcp-dev` |
@@ -452,7 +452,7 @@ No application source file was changed — `HOST=0.0.0.0` is supplied as an envi
 1. *(Optional but recommended)* Set the real Entra values before deploying, so the server can serve traffic immediately:
    ```
    azd env set ENTRA_TENANT_ID <your-tenant-id>
-   azd env set ENTRA_AUDIENCE  api://<your-api-client-id>
+   azd env set ENTRA_AUDIENCE  <your-api-client-id>
    ```
    Bicep defaults to placeholder GUIDs, so provisioning works without them, but `/mcp` will reject **every** token until
    they are real.

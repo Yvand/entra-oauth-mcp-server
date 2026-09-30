@@ -28,7 +28,7 @@ param redirectUri string = 'http://localhost:3000/callback'
 @description('Delegated scope name exposed by the API and required by the server (MCP_REQUIRED_SCOPE).')
 param scopeName string = 'mcp.invoke'
 
-@description('Optional custom Application ID URI for the API, e.g. api://contoso-mcp-api. Leave empty to rely on the API app ID (a bare GUID) as the audience, which Entra ID always accepts as an implicit identifier — see README section 1c.')
+@description('Optional custom Application ID URI used to request the API scope, e.g. api://contoso-mcp-api. This does not change the bare API app ID in the "aud" claim of v2 access tokens.')
 param apiIdentifierUri string = ''
 
 @description('Grant tenant-wide admin consent for the client to call the API scope. Requires a privileged role; set to false to consent manually afterward.')
@@ -103,6 +103,6 @@ resource adminConsentGrant 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = if (g
 output ENTRA_TENANT_ID string = tenant().tenantId
 output API_APP_ID string = apiApp.appId
 output CLIENT_APP_ID string = clientApp.appId
-output ENTRA_AUDIENCE string = empty(apiIdentifierUri) ? apiApp.appId : apiIdentifierUri
+output ENTRA_AUDIENCE string = apiApp.appId
 output MCP_REQUIRED_SCOPE string = scopeName
 output REQUESTED_SCOPE string = '${empty(apiIdentifierUri) ? apiApp.appId : apiIdentifierUri}/${scopeName}'

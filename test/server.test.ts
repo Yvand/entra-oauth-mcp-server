@@ -14,7 +14,7 @@ import { loadConfig } from "../src/config.js";
 
 const config = loadConfig({
   ENTRA_TENANT_ID: "tenant-id",
-  ENTRA_AUDIENCE: "api://client-id",
+  ENTRA_AUDIENCE: "client-id",
   MCP_REQUIRED_SCOPE: "mcp.invoke",
   PUBLIC_BASE_URL: "http://mcp.test",
 } as NodeJS.ProcessEnv);
@@ -122,7 +122,7 @@ describe("public endpoints", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       resource: "http://mcp.test",
-      scopes_supported: ["api://client-id/mcp.invoke"],
+      scopes_supported: ["client-id/mcp.invoke"],
     });
   });
 

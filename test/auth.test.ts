@@ -11,7 +11,7 @@ import {
 import { loadConfig } from "../src/config.js";
 
 const ISSUER = "https://login.microsoftonline.com/tenant-id/v2.0";
-const AUDIENCE = "api://client-id";
+const AUDIENCE = "client-id";
 
 async function makeTestKit() {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
@@ -167,7 +167,7 @@ describe("authenticate", () => {
     const { sign, verify } = await makeTestKit();
     const token = await sign(
       { sub: "sub-1", scp: "mcp.invoke" },
-      { audience: "api://other-api" },
+      { audience: "other-api" },
     );
 
     await expect(
@@ -198,7 +198,7 @@ describe("authenticate", () => {
 describe("loadConfig", () => {
   const base = {
     ENTRA_TENANT_ID: "tenant-id",
-    ENTRA_AUDIENCE: "api://client-id",
+    ENTRA_AUDIENCE: "client-id",
   } as NodeJS.ProcessEnv;
 
   it("derives issuer and JWKS URI from the tenant id", () => {
@@ -214,11 +214,11 @@ describe("loadConfig", () => {
   it("supports multiple audiences and overrides", () => {
     const config = loadConfig({
       ...base,
-      ENTRA_AUDIENCE: "api://client-id, client-id",
+      ENTRA_AUDIENCE: "client-id, api://client-id",
       MCP_REQUIRED_SCOPE: "custom.scope",
       PUBLIC_BASE_URL: "https://mcp.example.com/",
     });
-    expect(config.audiences).toEqual(["api://client-id", "client-id"]);
+    expect(config.audiences).toEqual(["client-id", "api://client-id"]);
     expect(config.requiredScope).toBe("custom.scope");
     expect(config.publicBaseUrl).toBe("https://mcp.example.com");
   });

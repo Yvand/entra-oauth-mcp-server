@@ -112,7 +112,7 @@ az ad app permission admin-consent --id $clientAppId
 
 Write-Host "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
 Write-Host "API app ID = $apiAppId"
-Write-Host "ENTRA_AUDIENCE = $identifierUri"
+Write-Host "ENTRA_AUDIENCE = $apiAppId"
 Write-Host "MCP_REQUIRED_SCOPE = $scopeName"
 Write-Host "Client app ID = $clientAppId"
 Write-Host "Requested scope = $identifierUri/$scopeName"
@@ -171,7 +171,7 @@ az ad app permission admin-consent --id "$clientAppId"
 
 echo "ENTRA_TENANT_ID = $(az account show --query tenantId -o tsv)"
 echo "API app ID = $apiAppId"
-echo "ENTRA_AUDIENCE = $identifierUri"
+echo "ENTRA_AUDIENCE = $apiAppId"
 echo "MCP_REQUIRED_SCOPE = $scopeName"
 echo "Client app ID = $clientAppId"
 echo "Requested scope = $identifierUri/$scopeName"
@@ -206,8 +206,8 @@ Requires the deploying principal to be allowed to create app registrations and g
 Application Administrator / Cloud Application Administrator — some tenants require a higher-privileged role for
 admin consent), in addition to the Azure RBAC role `azd` otherwise needs. Outputs mirror the CLI scripts' printed
 values: `ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`, `ENTRA_API_APP_ID`, `ENTRA_CLIENT_APP_ID`. By default the API app gets
-no `identifierUris` (Application ID URI) — Entra ID always accepts the bare API app ID as an implicit identifier, so
-`ENTRA_AUDIENCE` defaults to that GUID (see 1c below). SPA client registrations still need the portal steps in **1b**.
+no `identifierUris` (Application ID URI), and `ENTRA_AUDIENCE` is the bare API app ID emitted in the `aud` claim
+(see 1c below). SPA client registrations still need the portal steps in **1b**.
 Leave `createEntraAppRegistrations` at its default (`false`) to keep using registrations created by the portal or
 CLI scripts above, as described in the rest of section 5.
 
@@ -223,16 +223,17 @@ For the default setup above, that scope is `api://<api-client-id>/mcp.invoke`.
 
 That produces a v2 access token with:
 
-- `aud` = `<api-client-id>` or `api://<api-client-id>` (depending on the *Accepted token version* / Application ID URI form)
+- `aud` = `<api-client-id>` (the bare Application/client ID)
 - `iss` = `https://login.microsoftonline.com/<tenant-id>/v2.0`
 - `scp` containing `mcp.invoke`
 
-Set `ENTRA_AUDIENCE` to whatever your tokens actually carry in `aud`. If you used the CLI script, start with the printed
-`ENTRA_AUDIENCE` value (`api://<api-client-id>`). If you are unsure, decode a token at [jwt.ms](https://jwt.ms) and copy
-the `aud` value. You may list both forms, comma-separated:
+Set `ENTRA_AUDIENCE` to the bare API app ID printed by the setup script. The `api://` value identifies the delegated
+scope being requested; it is not the `aud` value in an Entra v2 access token. If you are unsure, decode a token at
+[jwt.ms](https://jwt.ms) and copy the `aud` value. The server also accepts multiple exact claim values, comma-separated,
+for deployments that intentionally support tokens from another issuer or token version:
 
 ```
-ENTRA_AUDIENCE=api://11111111-1111-1111-1111-111111111111,11111111-1111-1111-1111-111111111111
+ENTRA_AUDIENCE=11111111-1111-1111-1111-111111111111
 ```
 
 > A Microsoft Graph token (`aud` = `00000003-0000-0000-c000-000000000000`) will always be rejected here, by design.
@@ -252,7 +253,7 @@ Environment variables (all documented in `.env.example`):
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `ENTRA_TENANT_ID` | yes | – | Directory (tenant) ID; printed by the CLI scripts |
-| `ENTRA_AUDIENCE` | yes | – | Expected `aud` value(s), comma-separated; start with the printed `api://<api-client-id>` value |
+| `ENTRA_AUDIENCE` | yes | – | Expected `aud` value(s), comma-separated; for Entra v2 use the API application/client ID as a bare GUID |
 | `MCP_REQUIRED_SCOPE` | no | `mcp.invoke` | Delegated scope required for every MCP call; printed by the CLI scripts |
 | `ENTRA_ISSUER` | no | `https://login.microsoftonline.com/<tenant>/v2.0` | Expected `iss` |
 | `ENTRA_JWKS_URI` | no | tenant v2 `discovery/v2.0/keys` | Signing key source |

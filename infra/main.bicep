@@ -12,8 +12,8 @@ param location string
 @description('Microsoft Entra directory (tenant) ID used to validate access tokens. Placeholder by default — replace before the server can accept real traffic, or set createEntraAppRegistrations to true to have azd create it for you.')
 param entraTenantId string = '00000000-0000-0000-0000-000000000000'
 
-@description('Expected "aud" claim of incoming access tokens, e.g. api://<api-client-id>. Comma-separated list allowed. Placeholder by default. Ignored when createEntraAppRegistrations is true.')
-param entraAudience string = 'api://00000000-0000-0000-0000-000000000000'
+@description('Expected "aud" claim of incoming Entra v2 access tokens: the API application (client) ID as a bare GUID. Comma-separated list allowed. Placeholder by default. Ignored when createEntraAppRegistrations is true.')
+param entraAudience string = '00000000-0000-0000-0000-000000000000'
 
 @description('Delegated scope a caller must hold to invoke MCP tools.')
 param mcpRequiredScope string = 'mcp.invoke'

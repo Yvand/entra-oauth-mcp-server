@@ -12,7 +12,7 @@
       "value": "${ENTRA_TENANT_ID=00000000-0000-0000-0000-000000000000}"
     },
     "entraAudience": {
-      "value": "${ENTRA_AUDIENCE=api://00000000-0000-0000-0000-000000000000}"
+      "value": "${ENTRA_AUDIENCE=00000000-0000-0000-0000-000000000000}"
     },
     "mcpRequiredScope": {
       "value": "${MCP_REQUIRED_SCOPE=mcp.invoke}"
