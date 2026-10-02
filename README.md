@@ -184,7 +184,11 @@ both registrations declaratively, using the [Microsoft Graph Bicep
 extension](https://learn.microsoft.com/en-us/graph/templates/bicep/overview) instead of `az ad app` commands. It
 creates the same objects as the CLI scripts above — API app with the `mcp.invoke` scope, public-client app with the
 desktop/CLI PKCE redirect, service principals for both, and the delegated permission grant with tenant-wide admin
-consent — and is idempotent (`uniqueName` lets you re-run it safely).
+consent — and is idempotent (`uniqueName` lets you re-run it safely). It also adds the client to the API's
+"Authorized client applications" list (Expose an API blade), so Entra skips the consent prompt for this
+client/scope combination — and, by default, also pre-authorizes the well-known Microsoft Azure CLI first-party app
+(`04b07795-8ddb-461a-bbee-02f9e1bf7b46`) for the same scope, so `az` can call the API without a consent prompt
+either; set `ENTRA_AUTHORIZE_AZURE_CLI_CLIENT` to `false` to opt out.
 
 Unlike the portal/CLI options, this isn't a separate step: it's a module wired into
 [`infra/main.bicep`](infra/main.bicep) behind the `createEntraAppRegistrations` parameter, so it deploys as part of
@@ -198,6 +202,8 @@ azd env set CREATE_ENTRA_APP_REGISTRATIONS true
 azd env set ENTRA_API_DISPLAY_NAME simple-mcp-server-api
 azd env set ENTRA_CLIENT_DISPLAY_NAME simple-mcp-server-client
 azd env set ENTRA_CLIENT_REDIRECT_URI http://localhost:3000/callback
+azd env set ENTRA_AUTHORIZE_AZURE_CLI_CLIENT true
+azd env set ENTRA_AZURE_CLI_APP_ID 04b07795-8ddb-461a-bbee-02f9e1bf7b46
 
 azd up
 ```
@@ -206,8 +212,9 @@ Requires the deploying principal to be allowed to create app registrations and g
 Application Administrator / Cloud Application Administrator — some tenants require a higher-privileged role for
 admin consent), in addition to the Azure RBAC role `azd` otherwise needs. Outputs mirror the CLI scripts' printed
 values: `ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`, `ENTRA_API_APP_ID`, `ENTRA_CLIENT_APP_ID`. By default the API app gets
-no `identifierUris` (Application ID URI), and `ENTRA_AUDIENCE` is the bare API app ID emitted in the `aud` claim
-(see 1c below). SPA client registrations still need the portal steps in **1b**.
+`api://<api-app-id>` as its Application ID URI (matching the CLI scripts above), while `ENTRA_AUDIENCE` remains the
+bare API app ID emitted in the `aud` claim (see 1c below) — `identifierUris` has no effect on token audience. SPA
+client registrations still need the portal steps in **1b**.
 Leave `createEntraAppRegistrations` at its default (`false`) to keep using registrations created by the portal or
 CLI scripts above, as described in the rest of section 5.
 

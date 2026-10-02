@@ -34,6 +34,12 @@ param apiIdentifierUri string = ''
 @description('Grant tenant-wide admin consent for the client to call the API scope. Requires a privileged role; set to false to consent manually afterward.')
 param grantAdminConsent bool = true
 
+@description('Also pre-authorize the well-known Microsoft Azure CLI first-party app for the mcp.invoke scope, so `az` can call the API without a consent prompt.')
+param authorizeAzureCliClient bool = true
+
+@description('App ID of the well-known Microsoft Azure CLI first-party application. Only used when authorizeAzureCliClient is true.')
+param azureCliAppId string = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
+
 var scopeId = guid(subscription().id, apiDisplayName, scopeName)
 
 resource apiApp 'Microsoft.Graph/applications@v1.0' = {
@@ -90,6 +96,57 @@ resource clientServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
   appId: clientApp.appId
 }
 
+// Adds the client to the API's "Authorized client applications" list (Expose an API blade),
+// so Entra skips the consent prompt for this scope/client combination. This must be a
+// second `applications` resource (upserted by `uniqueName`) rather than a property added
+// directly to `apiApp` above: `clientApp` already depends on `apiApp.appId`
+// (requiredResourceAccess), so referencing `clientApp.appId` back on `apiApp` would create a
+// circular dependency (Bicep BCP080). Declaring it here, after `clientApp`, breaks the cycle.
+// Azure CLI's app ID is a literal, well-known constant (not a Bicep resource reference), so
+// it can be added directly to the array below with no such dependency concern.
+//
+// This second resource is also where the default Application ID URI gets set: `apiApp`
+// can't reference its own `appId` to build `api://<appId>` at creation time, so (matching
+// the CLI scripts in README 1a/1b, which always default to `api://<api-app-id>`) the
+// default is computed here instead, once `apiApp.appId` is known.
+resource apiAppAuthorizeClient 'Microsoft.Graph/applications@v1.0' = {
+  uniqueName: apiDisplayName
+  displayName: apiDisplayName
+  signInAudience: 'AzureADMyOrg'
+  identifierUris: [empty(apiIdentifierUri) ? 'api://${apiApp.appId}' : apiIdentifierUri]
+  api: {
+    requestedAccessTokenVersion: 2
+    oauth2PermissionScopes: [
+      {
+        id: scopeId
+        value: scopeName
+        type: 'User'
+        isEnabled: true
+        adminConsentDisplayName: 'Invoke MCP tools'
+        adminConsentDescription: 'Allows the app to invoke MCP tools on behalf of the signed-in user.'
+        userConsentDisplayName: 'Invoke MCP tools'
+        userConsentDescription: 'Allows the app to invoke MCP tools on your behalf.'
+      }
+    ]
+    preAuthorizedApplications: concat(
+      [
+        {
+          appId: clientApp.appId
+          delegatedPermissionIds: [scopeId]
+        }
+      ],
+      authorizeAzureCliClient
+        ? [
+            {
+              appId: azureCliAppId
+              delegatedPermissionIds: [scopeId]
+            }
+          ]
+        : []
+    )
+  }
+}
+
 // Delegated permission grant + admin consent, equivalent to `az ad app permission add` +
 // `az ad app permission admin-consent` in the CLI scripts. Runs even though the scope type
 // is `User`, so setup also works in tenants that restrict user self-consent.
@@ -105,4 +162,4 @@ output API_APP_ID string = apiApp.appId
 output CLIENT_APP_ID string = clientApp.appId
 output ENTRA_AUDIENCE string = apiApp.appId
 output MCP_REQUIRED_SCOPE string = scopeName
-output REQUESTED_SCOPE string = '${empty(apiIdentifierUri) ? apiApp.appId : apiIdentifierUri}/${scopeName}'
+output REQUESTED_SCOPE string = '${empty(apiIdentifierUri) ? 'api://${apiApp.appId}' : apiIdentifierUri}/${scopeName}'
