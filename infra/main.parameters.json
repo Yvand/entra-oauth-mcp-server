@@ -29,6 +29,12 @@
     "entraClientRedirectUri": {
       "value": "${ENTRA_CLIENT_REDIRECT_URI=http://localhost:3000/callback}"
     },
+    "entraAuthorizeAzureCliClient": {
+      "value": "${ENTRA_AUTHORIZE_AZURE_CLI_CLIENT=true}"
+    },
+    "entraAzureCliAppId": {
+      "value": "${ENTRA_AZURE_CLI_APP_ID=04b07795-8ddb-461a-bbee-02f9e1bf7b46}"
+    },
     "entraIssuer": {
       "value": "${ENTRA_ISSUER=}"
     },

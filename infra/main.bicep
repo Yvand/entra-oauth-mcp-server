@@ -30,6 +30,12 @@ param entraClientDisplayName string = 'simple-mcp-server-client'
 @description('Redirect URI registered on the public client for the Authorization Code + PKCE flow. Only used when createEntraAppRegistrations is true.')
 param entraClientRedirectUri string = 'http://localhost:3000/callback'
 
+@description('Also pre-authorize the well-known Microsoft Azure CLI first-party app for the mcp.invoke scope, so `az` can call the API without a consent prompt. Only used when createEntraAppRegistrations is true.')
+param entraAuthorizeAzureCliClient bool = true
+
+@description('App ID of the well-known Microsoft Azure CLI first-party application. Only used when createEntraAppRegistrations and entraAuthorizeAzureCliClient are true.')
+param entraAzureCliAppId string = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
+
 @description('Optional override for the OAuth issuer. Empty means the app derives it from the tenant ID.')
 param entraIssuer string = ''
 
@@ -96,6 +102,8 @@ module entraAppRegistrations 'entra/app-registrations.bicep' = if (createEntraAp
     clientDisplayName: entraClientDisplayName
     redirectUri: entraClientRedirectUri
     scopeName: mcpRequiredScope
+    authorizeAzureCliClient: entraAuthorizeAzureCliClient
+    azureCliAppId: entraAzureCliAppId
   }
 }
 

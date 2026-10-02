@@ -34,6 +34,12 @@ param apiIdentifierUri string = ''
 @description('Grant tenant-wide admin consent for the client to call the API scope. Requires a privileged role; set to false to consent manually afterward.')
 param grantAdminConsent bool = true
 
+@description('Also pre-authorize the well-known Microsoft Azure CLI first-party app for the mcp.invoke scope, so `az` can call the API without a consent prompt.')
+param authorizeAzureCliClient bool = true
+
+@description('App ID of the well-known Microsoft Azure CLI first-party application. Only used when authorizeAzureCliClient is true.')
+param azureCliAppId string = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
+
 var scopeId = guid(subscription().id, apiDisplayName, scopeName)
 
 resource apiApp 'Microsoft.Graph/applications@v1.0' = {
@@ -96,6 +102,8 @@ resource clientServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
 // directly to `apiApp` above: `clientApp` already depends on `apiApp.appId`
 // (requiredResourceAccess), so referencing `clientApp.appId` back on `apiApp` would create a
 // circular dependency (Bicep BCP080). Declaring it here, after `clientApp`, breaks the cycle.
+// Azure CLI's app ID is a literal, well-known constant (not a Bicep resource reference), so
+// it can be added directly to the array below with no such dependency concern.
 resource apiAppAuthorizeClient 'Microsoft.Graph/applications@v1.0' = {
   uniqueName: apiDisplayName
   displayName: apiDisplayName
@@ -115,12 +123,22 @@ resource apiAppAuthorizeClient 'Microsoft.Graph/applications@v1.0' = {
         userConsentDescription: 'Allows the app to invoke MCP tools on your behalf.'
       }
     ]
-    preAuthorizedApplications: [
-      {
-        appId: clientApp.appId
-        delegatedPermissionIds: [scopeId]
-      }
-    ]
+    preAuthorizedApplications: concat(
+      [
+        {
+          appId: clientApp.appId
+          delegatedPermissionIds: [scopeId]
+        }
+      ],
+      authorizeAzureCliClient
+        ? [
+            {
+              appId: azureCliAppId
+              delegatedPermissionIds: [scopeId]
+            }
+          ]
+        : []
+    )
   }
 }
 

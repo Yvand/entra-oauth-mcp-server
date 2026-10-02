@@ -186,7 +186,9 @@ creates the same objects as the CLI scripts above — API app with the `mcp.invo
 desktop/CLI PKCE redirect, service principals for both, and the delegated permission grant with tenant-wide admin
 consent — and is idempotent (`uniqueName` lets you re-run it safely). It also adds the client to the API's
 "Authorized client applications" list (Expose an API blade), so Entra skips the consent prompt for this
-client/scope combination.
+client/scope combination — and, by default, also pre-authorizes the well-known Microsoft Azure CLI first-party app
+(`04b07795-8ddb-461a-bbee-02f9e1bf7b46`) for the same scope, so `az` can call the API without a consent prompt
+either; set `ENTRA_AUTHORIZE_AZURE_CLI_CLIENT` to `false` to opt out.
 
 Unlike the portal/CLI options, this isn't a separate step: it's a module wired into
 [`infra/main.bicep`](infra/main.bicep) behind the `createEntraAppRegistrations` parameter, so it deploys as part of
@@ -200,6 +202,8 @@ azd env set CREATE_ENTRA_APP_REGISTRATIONS true
 azd env set ENTRA_API_DISPLAY_NAME simple-mcp-server-api
 azd env set ENTRA_CLIENT_DISPLAY_NAME simple-mcp-server-client
 azd env set ENTRA_CLIENT_REDIRECT_URI http://localhost:3000/callback
+azd env set ENTRA_AUTHORIZE_AZURE_CLI_CLIENT true
+azd env set ENTRA_AZURE_CLI_APP_ID 04b07795-8ddb-461a-bbee-02f9e1bf7b46
 
 azd up
 ```
