@@ -212,8 +212,9 @@ Requires the deploying principal to be allowed to create app registrations and g
 Application Administrator / Cloud Application Administrator — some tenants require a higher-privileged role for
 admin consent), in addition to the Azure RBAC role `azd` otherwise needs. Outputs mirror the CLI scripts' printed
 values: `ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`, `ENTRA_API_APP_ID`, `ENTRA_CLIENT_APP_ID`. By default the API app gets
-no `identifierUris` (Application ID URI), and `ENTRA_AUDIENCE` is the bare API app ID emitted in the `aud` claim
-(see 1c below). SPA client registrations still need the portal steps in **1b**.
+`api://<api-app-id>` as its Application ID URI (matching the CLI scripts above), while `ENTRA_AUDIENCE` remains the
+bare API app ID emitted in the `aud` claim (see 1c below) — `identifierUris` has no effect on token audience. SPA
+client registrations still need the portal steps in **1b**.
 Leave `createEntraAppRegistrations` at its default (`false`) to keep using registrations created by the portal or
 CLI scripts above, as described in the rest of section 5.
 
