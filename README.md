@@ -184,7 +184,9 @@ both registrations declaratively, using the [Microsoft Graph Bicep
 extension](https://learn.microsoft.com/en-us/graph/templates/bicep/overview) instead of `az ad app` commands. It
 creates the same objects as the CLI scripts above — API app with the `mcp.invoke` scope, public-client app with the
 desktop/CLI PKCE redirect, service principals for both, and the delegated permission grant with tenant-wide admin
-consent — and is idempotent (`uniqueName` lets you re-run it safely).
+consent — and is idempotent (`uniqueName` lets you re-run it safely). It also adds the client to the API's
+"Authorized client applications" list (Expose an API blade), so Entra skips the consent prompt for this
+client/scope combination.
 
 Unlike the portal/CLI options, this isn't a separate step: it's a module wired into
 [`infra/main.bicep`](infra/main.bicep) behind the `createEntraAppRegistrations` parameter, so it deploys as part of
