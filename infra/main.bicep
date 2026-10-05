@@ -98,6 +98,7 @@ resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
 module entraAppRegistrations 'entra/app-registrations.bicep' = if (createEntraAppRegistrations) {
   name: 'entra-apps-${resourceToken}'
   params: {
+    environmentName: environmentName
     apiDisplayName: entraApiDisplayName
     clientDisplayName: entraClientDisplayName
     redirectUri: entraClientRedirectUri
@@ -316,6 +317,7 @@ output ENTRA_TENANT_ID string = effectiveEntraTenantId
 output ENTRA_AUDIENCE string = effectiveEntraAudience
 output ENTRA_API_APP_ID string = createEntraAppRegistrations ? entraAppRegistrations!.outputs.API_APP_ID : ''
 output ENTRA_CLIENT_APP_ID string = createEntraAppRegistrations ? entraAppRegistrations!.outputs.CLIENT_APP_ID : ''
+output ENTRA_APP_OWNERSHIP_TAG string = createEntraAppRegistrations ? entraAppRegistrations!.outputs.APP_OWNERSHIP_TAG : ''
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.outputs.loginServer
 output AZURE_CONTAINER_REGISTRY_NAME string = containerRegistry.outputs.name
 output AZURE_CONTAINER_APPS_ENVIRONMENT_NAME string = containerAppsEnvironment.outputs.name

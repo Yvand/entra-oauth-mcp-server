@@ -15,12 +15,8 @@ services:
       context: .
 
 hooks:
-  # Best-effort cleanup for `azd down`: the Microsoft Graph Bicep extension does not delete
-  # the Entra app registrations created by infra/entra/app-registrations.bicep (by design),
-  # so this hook soft-deletes and then purges them from the Entra recycle bin before the
-  # rest of `azd down` tears down the Azure resources. See infra/hooks/ and README.md
-  # section 5 ("createEntraAppRegistrations") for details, including the
-  # ENTRA_PURGE_ON_DOWN opt-out.
+  # Best-effort cleanup before `azd down` removes deployment outputs from the environment.
+  # See infra/hooks/ and README.md section 1b for details, including the opt-out.
   predown:
     posix:
       shell: sh

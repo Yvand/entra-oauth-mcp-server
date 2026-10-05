@@ -1,22 +1,4 @@
 #!/usr/bin/env bash
-#
-# azd "predown" hook: fully removes the Entra ID app registrations created by
-# infra/entra/app-registrations.bicep (API + client apps), including purging them from
-# the Entra "Deleted items" recycle bin. This exists because the Microsoft Graph Bicep
-# extension does not delete app registrations on `azd down` (by design) — see README.md
-# section 5 ("createEntraAppRegistrations").
-#
-# Gate: only runs when the azd env has CREATE_ENTRA_APP_REGISTRATIONS=true, i.e. azd
-# itself created these apps. Registrations created manually via the portal/CLI scripts
-# are never touched by this hook.
-#
-# Opt-out: set ENTRA_PURGE_ON_DOWN=false (azd env set ENTRA_PURGE_ON_DOWN false) to skip
-# this cleanup entirely, e.g. if you want to keep or manually manage the registrations.
-#
-# This script is best-effort cleanup, not a core part of tearing down Azure resources:
-# it must never fail/abort `azd down`. Every exit path below is 0, and each step
-# (resolve object id, soft-delete, purge) is individually guarded so one failure doesn't
-# stop the rest of the cleanup.
 
 set -uo pipefail
 
@@ -28,90 +10,238 @@ warn() {
   echo "[predown-purge-entra-apps] WARNING: $*" >&2
 }
 
-# Tracks outcome per app for the end-of-run summary: purged | skipped | failed
-declare -A RESULTS=()
+is_not_found() {
+  echo "$1" | grep -Eqi "does not exist|not found|Request_ResourceNotFound|ResourceNotFound"
+}
 
-purge_app() {
-  local label="$1"
+is_empty() {
+  [[ -z "$1" || "$1" == "None" || "$1" == "null" ]]
+}
+
+run_az() {
+  AZ_OUTPUT=$(az "$@" 2>&1)
+  AZ_STATUS=$?
+}
+
+API_RESULT="skipped (no app id)"
+CLIENT_RESULT="skipped (no app id)"
+
+set_result() {
+  case "$1" in
+    "API app") API_RESULT="$2" ;;
+    "client app") CLIENT_RESULT="$2" ;;
+  esac
+}
+
+find_deleted_object() {
+  local object_type="$1"
   local app_id="$2"
+  local ownership_tag="$3"
+  local uri="https://graph.microsoft.com/v1.0/directory/deletedItems/microsoft.graph.${object_type}?%24filter=appId%20eq%20%27${app_id}%27&%24select=id,appId,tags"
 
-  if [[ -z "${app_id}" ]]; then
-    log "No app id provided for ${label}; nothing to purge."
-    RESULTS["${label}"]="skipped (no app id)"
+  run_az rest --method GET --uri "$uri" --query "value[0].id" -o tsv
+  if [[ ${AZ_STATUS} -ne 0 ]]; then
+    if is_not_found "${AZ_OUTPUT}"; then
+      FOUND_ID=""
+      FOUND_STATE="absent"
+    else
+      FOUND_ID=""
+      FOUND_STATE="error"
+    fi
     return 0
   fi
 
-  log "Looking up object id for ${label} (appId=${app_id})..."
-  local show_err_file
-  show_err_file=$(mktemp)
-  local object_id
-  object_id=$(az ad app show --id "${app_id}" --query id -o tsv 2>"${show_err_file}")
-  local show_rc=$?
-  local show_err
-  show_err=$(cat "${show_err_file}" 2>/dev/null)
-  rm -f "${show_err_file}"
+  local object_id="$AZ_OUTPUT"
+  if is_empty "$object_id"; then
+    FOUND_ID=""
+    FOUND_STATE="absent"
+    return 0
+  fi
 
-  if [[ ${show_rc} -ne 0 || -z "${object_id}" ]]; then
-    if echo "${show_err}" | grep -Eqi "does not exist|not found|Request_ResourceNotFound"; then
-      log "${label} (appId=${app_id}) no longer exists; treating as already cleaned up."
-      RESULTS["${label}"]="skipped (already deleted)"
+  if [[ -n "$ownership_tag" ]]; then
+    run_az rest --method GET --uri "$uri" --query "contains(value[0].tags, '${ownership_tag}')" -o tsv
+    if [[ ${AZ_STATUS} -ne 0 || "$AZ_OUTPUT" != "true" ]]; then
+      FOUND_ID=""
+      FOUND_STATE="unowned"
       return 0
     fi
-    warn "Could not look up ${label} (appId=${app_id}): ${show_err:-unknown error}. Skipping cleanup for this app."
-    RESULTS["${label}"]="failed (lookup error)"
+  fi
+
+  FOUND_ID="$object_id"
+  FOUND_STATE="deleted"
+}
+
+find_app() {
+  local app_id="$1"
+  local ownership_tag="$2"
+
+  run_az ad app show --id "$app_id" --query id -o tsv
+  if [[ ${AZ_STATUS} -eq 0 ]] && ! is_empty "$AZ_OUTPUT"; then
+    local object_id="$AZ_OUTPUT"
+    run_az ad app show --id "$app_id" --query "contains(tags, '${ownership_tag}')" -o tsv
+    if [[ ${AZ_STATUS} -eq 0 && "$AZ_OUTPUT" == "true" ]]; then
+      FOUND_ID="$object_id"
+      FOUND_STATE="active"
+    else
+      FOUND_ID=""
+      FOUND_STATE="unowned"
+    fi
     return 0
   fi
 
-  log "Soft-deleting ${label} (appId=${app_id}, objectId=${object_id})..."
-  local delete_err
-  delete_err=$(az ad app delete --id "${app_id}" 2>&1 >/dev/null)
-  local delete_rc=$?
-  if [[ ${delete_rc} -ne 0 ]]; then
-    warn "Failed to soft-delete ${label} (appId=${app_id}): ${delete_err:-unknown error}. Skipping purge for this app."
-    RESULTS["${label}"]="failed (soft-delete error)"
+  if [[ ${AZ_STATUS} -eq 0 ]] || ! is_not_found "${AZ_OUTPUT}"; then
+    FOUND_ID=""
+    FOUND_STATE="error"
     return 0
   fi
 
-  log "Purging ${label} from the Entra recycle bin (objectId=${object_id})..."
-  local purge_err
-  purge_err=$(az rest --method DELETE \
-    --uri "https://graph.microsoft.com/v1.0/directory/deletedItems/${object_id}" 2>&1 >/dev/null)
-  local purge_rc=$?
-  if [[ ${purge_rc} -ne 0 ]]; then
-    warn "Soft-deleted ${label} but failed to purge it from the recycle bin (objectId=${object_id}): ${purge_err:-unknown error}. You may need to purge it manually in the Entra admin center."
-    RESULTS["${label}"]="failed (purge error, soft-deleted only)"
+  find_deleted_object "application" "$app_id" "$ownership_tag"
+}
+
+find_service_principal() {
+  local app_id="$1"
+  local ownership_tag="$2"
+
+  run_az ad sp show --id "$app_id" --query id -o tsv
+  if [[ ${AZ_STATUS} -eq 0 ]] && ! is_empty "$AZ_OUTPUT"; then
+    local object_id="$AZ_OUTPUT"
+    run_az ad sp show --id "$app_id" --query "contains(tags, '${ownership_tag}')" -o tsv
+    if [[ ${AZ_STATUS} -eq 0 && "$AZ_OUTPUT" == "true" ]]; then
+      FOUND_ID="$object_id"
+      FOUND_STATE="active"
+    else
+      FOUND_ID=""
+      FOUND_STATE="unowned"
+    fi
     return 0
   fi
 
-  log "${label} fully purged (appId=${app_id})."
-  RESULTS["${label}"]="purged"
-  return 0
+  if [[ ${AZ_STATUS} -eq 0 ]] || ! is_not_found "${AZ_OUTPUT}"; then
+    FOUND_ID=""
+    FOUND_STATE="error"
+    return 0
+  fi
+
+  find_deleted_object "servicePrincipal" "$app_id" "$ownership_tag"
+}
+
+purge_object() {
+  local label="$1"
+  local object_id="$2"
+
+  run_az rest --method DELETE --uri "https://graph.microsoft.com/v1.0/directory/deletedItems/${object_id}"
+  if [[ ${AZ_STATUS} -eq 0 ]] || is_not_found "${AZ_OUTPUT}"; then
+    log "${label} purged (objectId=${object_id})."
+    return 0
+  fi
+
+  warn "Failed to purge ${label} (objectId=${object_id}): ${AZ_OUTPUT:-unknown error}."
+  return 1
+}
+
+cleanup_app() {
+  local label="$1"
+  local app_id="$2"
+  local ownership_tag="$3"
+
+  if [[ -z "$app_id" ]]; then
+    log "No app id provided for ${label}; nothing to purge."
+    set_result "$label" "skipped (no app id)"
+    return 0
+  fi
+  if [[ -z "$ownership_tag" ]]; then
+    warn "No ownership tag provided for ${label} (appId=${app_id}); refusing cleanup."
+    set_result "$label" "skipped (ownership tag unavailable)"
+    return 0
+  fi
+
+  find_app "$app_id" "$ownership_tag"
+  local app_object_id="$FOUND_ID"
+  local app_state="$FOUND_STATE"
+  if [[ "$app_state" == "unowned" ]]; then
+    warn "${label} (appId=${app_id}) does not have this azd environment's ownership tag; refusing cleanup."
+    set_result "$label" "skipped (ownership mismatch)"
+    return 0
+  elif [[ "$app_state" != "active" && "$app_state" != "deleted" && "$app_state" != "absent" ]]; then
+    warn "Could not verify ${label} ownership or lookup state (appId=${app_id}): ${AZ_OUTPUT:-unknown error}."
+    set_result "$label" "failed (application lookup error)"
+    return 0
+  fi
+
+  find_service_principal "$app_id" "$ownership_tag"
+  local sp_object_id="$FOUND_ID"
+  local sp_state="$FOUND_STATE"
+  if [[ "$sp_state" == "error" ]]; then
+    warn "Could not look up the service principal for ${label} (appId=${app_id}): ${AZ_OUTPUT:-unknown error}."
+    set_result "$label" "failed (service principal lookup error)"
+    return 0
+  elif [[ "$sp_state" == "unowned" ]]; then
+    warn "The service principal for ${label} (appId=${app_id}) does not have this azd environment's ownership tag; refusing cleanup."
+    set_result "$label" "skipped (service principal ownership mismatch)"
+    return 0
+  fi
+
+  if [[ "$sp_state" == "active" ]]; then
+    run_az ad sp delete --id "$app_id"
+    if [[ ${AZ_STATUS} -ne 0 ]]; then
+      warn "Failed to soft-delete the service principal for ${label} (appId=${app_id}): ${AZ_OUTPUT:-unknown error}."
+      set_result "$label" "failed (service principal delete error)"
+      return 0
+    fi
+  fi
+
+  if [[ "$sp_state" == "active" || "$sp_state" == "deleted" ]]; then
+    if ! purge_object "service principal for ${label}" "$sp_object_id"; then
+      set_result "$label" "failed (service principal purge error)"
+      return 0
+    fi
+  fi
+
+  if [[ "$app_state" == "absent" ]]; then
+    log "${label} (appId=${app_id}) is already permanently deleted."
+    set_result "$label" "purged"
+    return 0
+  fi
+
+  if [[ "$app_state" == "active" ]]; then
+    run_az ad app delete --id "$app_id"
+    if [[ ${AZ_STATUS} -ne 0 ]]; then
+      warn "Failed to soft-delete ${label} (appId=${app_id}): ${AZ_OUTPUT:-unknown error}."
+      set_result "$label" "failed (application delete error)"
+      return 0
+    fi
+  fi
+
+  if ! purge_object "$label" "$app_object_id"; then
+    set_result "$label" "failed (application purge error)"
+    return 0
+  fi
+
+  set_result "$label" "purged"
 }
 
 main() {
   if [[ "${CREATE_ENTRA_APP_REGISTRATIONS:-false}" != "true" ]]; then
-    log "CREATE_ENTRA_APP_REGISTRATIONS is not 'true'; skipping (registrations were not created by azd, or this env predates the feature)."
+    log "CREATE_ENTRA_APP_REGISTRATIONS is not 'true'; skipping."
     exit 0
   fi
 
   if [[ "${ENTRA_PURGE_ON_DOWN:-true}" == "false" ]]; then
-    log "ENTRA_PURGE_ON_DOWN is 'false'; skipping Entra app registration cleanup by request."
+    log "ENTRA_PURGE_ON_DOWN is 'false'; skipping Entra cleanup by request."
     exit 0
   fi
 
   if ! command -v az >/dev/null 2>&1; then
-    warn "Azure CLI ('az') not found on PATH; cannot purge Entra app registrations. Continuing with 'azd down'."
+    warn "Azure CLI ('az') not found on PATH; cannot purge Entra objects. Continuing with 'azd down'."
     exit 0
   fi
 
-  purge_app "API app" "${ENTRA_API_APP_ID:-}"
-  purge_app "client app" "${ENTRA_CLIENT_APP_ID:-}"
+  cleanup_app "API app" "${ENTRA_API_APP_ID:-}" "${ENTRA_APP_OWNERSHIP_TAG:-}"
+  cleanup_app "client app" "${ENTRA_CLIENT_APP_ID:-}" "${ENTRA_APP_OWNERSHIP_TAG:-}"
 
   log "Summary:"
-  for label in "API app" "client app"; do
-    log "  - ${label}: ${RESULTS[${label}]:-skipped (no app id)}"
-  done
-
+  log "  - API app: ${API_RESULT}"
+  log "  - client app: ${CLIENT_RESULT}"
   exit 0
 }
 
