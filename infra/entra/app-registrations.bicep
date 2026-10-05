@@ -1,9 +1,8 @@
 targetScope = 'subscription'
 
-// Creates and configures the two Microsoft Entra ID app registrations documented in
-// README.md section 1: the API (this server) and the PKCE desktop/CLI client. This is a
-// Bicep equivalent of the portal steps in 1a-1b / the CLI scripts in "CLI alternative to
-// 1a-1b", using the Microsoft Graph Bicep extension instead of `az ad app` commands.
+// Creates the API and PKCE desktop/CLI registrations documented in
+// docs/entra-app-registrations.md, using the Microsoft Graph Bicep extension.
+// See docs/azure-deployment.md for the azd-managed registration workflow.
 //
 // This file is a module invoked from infra/main.bicep (guarded by the
 // createEntraAppRegistrations parameter), so it deploys as part of the normal `azd
@@ -82,8 +81,8 @@ resource clientApp 'Microsoft.Graph/applications@v1.0' = {
   tags: [ownershipTag]
   displayName: clientDisplayName
   signInAudience: 'AzureADMyOrg'
-  // Public client (Authorization Code + PKCE, no secret), matching README's "Mobile and
-  // desktop applications" platform. SPA registrations still need the portal steps in 1b.
+  // Public client (Authorization Code + PKCE, no secret). See
+  // docs/entra-app-registrations.md for desktop versus SPA platform setup.
   isFallbackPublicClient: true
   publicClient: {
     redirectUris: [redirectUri]
@@ -117,7 +116,7 @@ resource clientServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
 //
 // This second resource is also where the default Application ID URI gets set: `apiApp`
 // can't reference its own `appId` to build `api://<appId>` at creation time, so (matching
-// the CLI scripts in README 1a/1b, which always default to `api://<api-app-id>`) the
+// the scripts in docs/entra-app-registrations.md, which default to `api://<api-app-id>`) the
 // default is computed here instead, once `apiApp.appId` is known.
 resource apiAppAuthorizeClient 'Microsoft.Graph/applications@v1.0' = {
   uniqueName: apiUniqueName

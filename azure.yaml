@@ -16,7 +16,7 @@ services:
 
 hooks:
   # Best-effort cleanup before `azd down` removes deployment outputs from the environment.
-  # See infra/hooks/ and README.md section 1b for details, including the opt-out.
+  # See docs/operations.md for ownership checks, permanent purge, and the opt-out.
   predown:
     posix:
       shell: sh
