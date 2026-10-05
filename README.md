@@ -22,6 +22,7 @@ A small, production-shaped [Model Context Protocol](https://modelcontextprotocol
 | `azure.yaml` | Azure Developer CLI service definition |
 | `infra/` | Bicep infrastructure (AVM modules) for Azure Container Apps |
 | `infra/entra/` | Bicep module (Microsoft Graph extension) that `azd` can use to create the two Entra ID app registrations |
+| `infra/hooks/` | `azd predown` hook scripts that purge the Entra app registrations (including from the recycle bin) on `azd down` |
 | `.azure/deployment-plan.md` | Deployment plan and architecture decisions |
 
 ## 1. Entra ID app registrations
@@ -217,6 +218,29 @@ bare API app ID emitted in the `aud` claim (see 1c below) — `identifierUris` h
 client registrations still need the portal steps in **1b**.
 Leave `createEntraAppRegistrations` at its default (`false`) to keep using registrations created by the portal or
 CLI scripts above, as described in the rest of section 5.
+
+#### Cleaning up on `azd down`
+
+The Microsoft Graph Bicep extension does not delete app registrations when their resources are removed — this is
+by design, so `azd down` alone leaves the API and client app registrations behind in Entra. When
+`createEntraAppRegistrations` is `true`, this repo wires up a `predown` [azd hook](infra/hooks/) (`infra/hooks/predown-purge-entra-apps.sh`
+on Linux/macOS, `infra/hooks/predown-purge-entra-apps.ps1` on Windows, registered in [`azure.yaml`](azure.yaml)) that
+runs before `azd down` tears down the Azure resources and removes both app registrations — soft-deleting them with
+`az ad app delete`, then permanently purging them from the Entra **Deleted items** recycle bin via the Microsoft
+Graph `directory/deletedItems` endpoint — so nothing lingers after teardown.
+
+The hook is opt-in by construction: it only acts when `CREATE_ENTRA_APP_REGISTRATIONS` is `true` in the azd
+environment (i.e. azd created the apps itself), so it never touches registrations you created manually via the
+portal or CLI scripts. You can also disable it outright, even when azd created the apps:
+
+```bash
+azd env set ENTRA_PURGE_ON_DOWN false
+```
+
+Deleting and purging app registrations requires the same privileged role used to create them (e.g. Application
+Administrator / Cloud Application Administrator). The hook is best-effort: it never fails or blocks `azd down` —
+any lookup/delete/purge error is printed as a warning (with the underlying `az` error) and teardown continues, so
+you may occasionally need to finish cleanup manually in the Entra admin center.
 
 ### 1c. Token audience — the part people get wrong
 

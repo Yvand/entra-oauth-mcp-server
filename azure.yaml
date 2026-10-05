@@ -13,3 +13,22 @@ services:
       remoteBuild: true
       path: ./Dockerfile
       context: .
+
+hooks:
+  # Best-effort cleanup for `azd down`: the Microsoft Graph Bicep extension does not delete
+  # the Entra app registrations created by infra/entra/app-registrations.bicep (by design),
+  # so this hook soft-deletes and then purges them from the Entra recycle bin before the
+  # rest of `azd down` tears down the Azure resources. See infra/hooks/ and README.md
+  # section 5 ("createEntraAppRegistrations") for details, including the
+  # ENTRA_PURGE_ON_DOWN opt-out.
+  predown:
+    posix:
+      shell: sh
+      run: infra/hooks/predown-purge-entra-apps.sh
+      continueOnError: true
+      interactive: false
+    windows:
+      shell: pwsh
+      run: infra/hooks/predown-purge-entra-apps.ps1
+      continueOnError: true
+      interactive: false
