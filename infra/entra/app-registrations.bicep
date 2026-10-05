@@ -16,6 +16,8 @@ targetScope = 'subscription'
 
 extension microsoftGraphV1
 
+param environmentName string
+
 @description('Display name for the API app registration (this server).')
 param apiDisplayName string = 'simple-mcp-server-api'
 
@@ -41,9 +43,14 @@ param authorizeAzureCliClient bool = true
 param azureCliAppId string = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
 
 var scopeId = guid(subscription().id, apiDisplayName, scopeName)
+var ownershipSuffix = uniqueString(subscription().id, environmentName)
+var ownershipTag = 'azd-entra-oauth-mcp-${ownershipSuffix}'
+var apiUniqueName = 'entra-oauth-mcp-api-${ownershipSuffix}'
+var clientUniqueName = 'entra-oauth-mcp-client-${ownershipSuffix}'
 
 resource apiApp 'Microsoft.Graph/applications@v1.0' = {
-  uniqueName: apiDisplayName
+  uniqueName: apiUniqueName
+  tags: [ownershipTag]
   displayName: apiDisplayName
   signInAudience: 'AzureADMyOrg'
   identifierUris: empty(apiIdentifierUri) ? [] : [apiIdentifierUri]
@@ -67,10 +74,12 @@ resource apiApp 'Microsoft.Graph/applications@v1.0' = {
 // No client secret or certificate: this server only validates tokens, it never requests them.
 resource apiServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
   appId: apiApp.appId
+  tags: [ownershipTag]
 }
 
 resource clientApp 'Microsoft.Graph/applications@v1.0' = {
-  uniqueName: clientDisplayName
+  uniqueName: clientUniqueName
+  tags: [ownershipTag]
   displayName: clientDisplayName
   signInAudience: 'AzureADMyOrg'
   // Public client (Authorization Code + PKCE, no secret), matching README's "Mobile and
@@ -94,6 +103,7 @@ resource clientApp 'Microsoft.Graph/applications@v1.0' = {
 
 resource clientServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
   appId: clientApp.appId
+  tags: [ownershipTag]
 }
 
 // Adds the client to the API's "Authorized client applications" list (Expose an API blade),
@@ -110,7 +120,8 @@ resource clientServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
 // the CLI scripts in README 1a/1b, which always default to `api://<api-app-id>`) the
 // default is computed here instead, once `apiApp.appId` is known.
 resource apiAppAuthorizeClient 'Microsoft.Graph/applications@v1.0' = {
-  uniqueName: apiDisplayName
+  uniqueName: apiUniqueName
+  tags: [ownershipTag]
   displayName: apiDisplayName
   signInAudience: 'AzureADMyOrg'
   identifierUris: [empty(apiIdentifierUri) ? 'api://${apiApp.appId}' : apiIdentifierUri]
@@ -160,6 +171,7 @@ resource adminConsentGrant 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = if (g
 output ENTRA_TENANT_ID string = tenant().tenantId
 output API_APP_ID string = apiApp.appId
 output CLIENT_APP_ID string = clientApp.appId
+output APP_OWNERSHIP_TAG string = ownershipTag
 output ENTRA_AUDIENCE string = apiApp.appId
 output MCP_REQUIRED_SCOPE string = scopeName
 output REQUESTED_SCOPE string = '${empty(apiIdentifierUri) ? 'api://${apiApp.appId}' : apiIdentifierUri}/${scopeName}'
