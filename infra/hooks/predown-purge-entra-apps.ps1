@@ -1,11 +1,11 @@
 function Write-Log {
     param([string]$Message)
-    Write-Host "[postdown-purge-entra-apps] $Message"
+    Write-Host "[predown-purge-entra-apps] $Message"
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Warning "[postdown-purge-entra-apps] $Message"
+    Write-Warning "[predown-purge-entra-apps] $Message"
 }
 
 function Invoke-Az {

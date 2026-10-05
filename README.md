@@ -223,11 +223,12 @@ CLI scripts above, as described in the rest of section 5.
 
 The Microsoft Graph Bicep extension does not delete app registrations when their resources are removed — this is
 by design, so `azd down` alone leaves the API and client app registrations behind in Entra. When
-`createEntraAppRegistrations` is `true`, this repo wires up a `postdown` [azd hook](infra/hooks/) (`infra/hooks/postdown-purge-entra-apps.sh`
-on Linux/macOS, `infra/hooks/postdown-purge-entra-apps.ps1` on Windows, registered in [`azure.yaml`](azure.yaml)).
-It runs only after `azd down` succeeds, then soft-deletes both app registrations and service principals and
-permanently purges them from the Entra **Deleted items** recycle bin via Microsoft Graph. A cancelled or failed
-teardown therefore leaves the registrations intact.
+`createEntraAppRegistrations` is `true`, this repo wires up a `predown` [azd hook](infra/hooks/) (`infra/hooks/predown-purge-entra-apps.sh`
+on Linux/macOS, `infra/hooks/predown-purge-entra-apps.ps1` on Windows, registered in [`azure.yaml`](azure.yaml)).
+It runs before `azd down` removes deployment outputs from the environment, then soft-deletes both app registrations
+and service principals and permanently purges them from the Entra **Deleted items** recycle bin via Microsoft Graph.
+Cleanup happens before teardown confirmation, so registrations may already be purged even if teardown is cancelled
+or fails.
 
 The hook requires `CREATE_ENTRA_APP_REGISTRATIONS=true` and verifies a per-subscription, per-azd-environment
 ownership tag before deleting anything. New registrations use environment-specific names, so different azd
@@ -240,7 +241,7 @@ azd env set ENTRA_PURGE_ON_DOWN false
 
 Deleting and purging app registrations and service principals requires the appropriate privileged role (e.g.
 Application Administrator / Cloud Application Administrator). The hook is best-effort: lookup/delete/purge errors
-are printed as warnings and do not fail `azd down`. If a purge fails after soft deletion, a later successful
+are printed as warnings and do not fail `azd down`. If a purge fails after soft deletion, a later
 `azd down` retries the purge from Deleted items; you may still need to finish cleanup manually in the Entra admin
 center.
 

@@ -3,11 +3,11 @@
 set -uo pipefail
 
 log() {
-  echo "[postdown-purge-entra-apps] $*"
+  echo "[predown-purge-entra-apps] $*"
 }
 
 warn() {
-  echo "[postdown-purge-entra-apps] WARNING: $*" >&2
+  echo "[predown-purge-entra-apps] WARNING: $*" >&2
 }
 
 is_not_found() {

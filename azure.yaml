@@ -15,16 +15,16 @@ services:
       context: .
 
 hooks:
-  # Best-effort cleanup only after `azd down` successfully tears down Azure resources.
+  # Best-effort cleanup before `azd down` removes deployment outputs from the environment.
   # See infra/hooks/ and README.md section 1b for details, including the opt-out.
-  postdown:
+  predown:
     posix:
       shell: sh
-      run: infra/hooks/postdown-purge-entra-apps.sh
+      run: infra/hooks/predown-purge-entra-apps.sh
       continueOnError: true
       interactive: false
     windows:
       shell: pwsh
-      run: infra/hooks/postdown-purge-entra-apps.ps1
+      run: infra/hooks/predown-purge-entra-apps.ps1
       continueOnError: true
       interactive: false
