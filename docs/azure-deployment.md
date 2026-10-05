@@ -6,7 +6,7 @@ Use the **Azure Developer CLI (`azd`)** to provision and deploy the server to Az
 
 | `CREATE_ENTRA_APP_REGISTRATIONS` | Registration source | Server tenant/audience | Registration cleanup |
 | --- | --- | --- | --- |
-| `true` | Microsoft Graph Bicep module creates an environment-specific API/client pair | Derived automatically from created API | Ownership-checked `postdown` deletion and permanent purge, unless opted out |
+| `true` | Microsoft Graph Bicep module creates an environment-specific API/client pair | Derived automatically from created API | Ownership-checked `predown` deletion and permanent purge, unless opted out |
 | `false` (default) | Existing apps, created manually or with scripts | Set explicitly with `azd env set` | Yours to manage; `azd down` does not delete them |
 
 Azure resources and Entra directory objects have different lifecycles. Read [cleanup](operations.md#azure-teardown) before choosing automatic ownership, particularly if you plan to share registrations with another deployment.

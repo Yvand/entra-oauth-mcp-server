@@ -49,11 +49,11 @@ The Azure deployment uses ACR remote builds, so local Docker is not required for
 | `test/hooks.test.ts` | Entra cleanup-hook tests with a mocked Azure CLI |
 | `.env.example` | Local server configuration template |
 | `Dockerfile` | Multi-stage Node.js container build; non-root runtime |
-| `azure.yaml` | `azd` service definition, remote build, and `postdown` hooks |
+| `azure.yaml` | `azd` service definition, remote build, and `predown` hooks |
 | `infra/main.bicep`, `infra/main.parameters.json` | Azure infrastructure and `azd` parameter mapping |
 | `infra/entra/` | Optional declarative Entra app registrations |
 | `infra/modules/` | Registry pull-role assignment and deployed-image lookup |
-| `infra/hooks/` | Ownership-checked Entra deletion/purge after Azure teardown |
+| `infra/hooks/` | Ownership-checked Entra deletion/purge before Azure teardown confirmation |
 | `docs/` | Version-controlled setup, testing, and operations guides |
 
 ## Documentation

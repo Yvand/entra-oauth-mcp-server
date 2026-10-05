@@ -46,14 +46,14 @@ const hookRunners = [
   {
     name: "Bash",
     command: "bash",
-    args: ["infra/hooks/postdown-purge-entra-apps.sh"],
+    args: ["infra/hooks/predown-purge-entra-apps.sh"],
   },
   ...(spawnSync("pwsh", ["-NoProfile", "-Command", "exit 0"]).status === 0
     ? [
         {
           name: "PowerShell",
           command: "pwsh",
-          args: ["-NoProfile", "-File", "infra/hooks/postdown-purge-entra-apps.ps1"],
+          args: ["-NoProfile", "-File", "infra/hooks/predown-purge-entra-apps.ps1"],
         },
       ]
     : []),
@@ -172,8 +172,8 @@ describe.each(hookRunners)("$name Entra cleanup hook", (runner) => {
   });
 });
 
-it("runs the irreversible cleanup only from postdown", () => {
+it("runs the irreversible cleanup only from predown", () => {
   const azureYaml = readFileSync(join(repositoryRoot, "azure.yaml"), "utf8");
-  expect(azureYaml).toContain("postdown:");
-  expect(azureYaml).not.toMatch(/^\s+predown:/m);
+  expect(azureYaml).toContain("predown:");
+  expect(azureYaml).not.toMatch(/^\s+postdown:/m);
 });

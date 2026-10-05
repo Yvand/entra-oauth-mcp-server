@@ -102,20 +102,22 @@ az login --tenant "<registration-tenant-id>"
 azd down
 ```
 
+**The Entra hook runs before teardown confirmation.** Generated registrations may already be permanently purged even if you cancel the confirmation or Azure deletion fails. Set `ENTRA_PURGE_ON_DOWN=false` before invoking `azd down` if you need to retain them.
+
 Review `azd` confirmation prompts; do not bypass them without verifying the deletion scope. `azd down` removes the Azure resources, including the registry and its images. It is not enough to stop the Container App if you want to remove all deployed resources.
 
-#### Generated registrations: postdown cleanup
+#### Generated registrations: predown cleanup
 
-The Graph Bicep extension does not delete registrations on Azure teardown. This repository's [postdown hooks](../infra/hooks/) supply that cleanup **after successful** `azd down`:
+The Graph Bicep extension does not delete registrations on Azure teardown. This repository's [predown hooks](../infra/hooks/) supply that cleanup **before** `azd down` removes deployment outputs from the environment:
 
 - Run only if `CREATE_ENTRA_APP_REGISTRATIONS` is exactly `true` and `ENTRA_PURGE_ON_DOWN` is not `false`.
 - Use generated API/client IDs and `ENTRA_APP_OWNERSHIP_TAG`; refuse missing/mismatched ownership.
 - Delete and permanently purge the owned service principal before its application, for both registrations.
-- Leave registrations untouched if teardown is cancelled/failed, or ownership cannot be verified.
+- Refuse cleanup if ownership cannot be verified; cancellation or failure of subsequent Azure teardown does not undo a purge.
 
 Azure CLI and sufficient Entra privileges are required. Hook warnings do **not** fail `azd down`; read the final API/client summary. Successful Azure deletion does not prove every Entra object was purged. Older untagged registrations are intentionally not cleaned up.
 
-If purge fails after soft deletion, the hooks can find owned objects in **Deleted items** on a subsequent successful teardown. You can also resolve failures manually using the exact IDs and the [steps below](#independently-managed-registrations). Keep environment state for recovery. Never remove ownership checks or change creation flags to force deletion of unrelated objects.
+If purge fails after soft deletion, the hooks can find owned objects in **Deleted items** on a subsequent `azd down` invocation, provided the required IDs and ownership tag are still available. You can also resolve failures manually using the exact IDs and the [steps below](#independently-managed-registrations). Keep recovery information before teardown, because deployment outputs may be removed. Never remove ownership checks or change creation flags to force deletion of unrelated objects.
 
 With `CREATE_ENTRA_APP_REGISTRATIONS=false`, the hook skips Entra cleanup entirely. Independently managed API/client registrations remain even if their IDs were saved in azd state.
 

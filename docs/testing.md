@@ -34,7 +34,7 @@ npx vitest run test/auth.test.ts -t "authenticate"
 | --- | --- |
 | `test/auth.test.ts` | Bearer header handling, scope enforcement, claim allow-listing, valid/expired/wrong-issuer/wrong-audience/untrusted-key tokens, and configuration |
 | `test/server.test.ts` | Own loopback HTTP server; public endpoints, 401/403/405 paths, malformed authenticated JSON, initialize/list/whoami |
-| `test/hooks.test.ts` | Mocked Azure CLI; owned-object deletion order, ownership mismatches, Deleted items retry, and postdown-only wiring |
+| `test/hooks.test.ts` | Mocked Azure CLI; owned-object deletion order, ownership mismatches, Deleted items retry, and predown-only wiring |
 
 Token tests generate RSA keys and sign tokens locally with `jose`; they do not contact Entra. Hook tests do not delete real objects. Bash must be available for the Bash hook cases; PowerShell cases are included only when `pwsh` is available. On Windows, run the full suite in a compatible Bash-capable environment such as WSL. Type checking includes source and tests; build compiles the production source. There is no dedicated lint script.
 
