@@ -16,7 +16,7 @@ services:
 
 hooks:
   # Best-effort cleanup only after `azd down` successfully tears down Azure resources.
-  # See infra/hooks/ and README.md section 1b for details, including the opt-out.
+  # See docs/operations.md for ownership checks, permanent purge, and the opt-out.
   postdown:
     posix:
       shell: sh

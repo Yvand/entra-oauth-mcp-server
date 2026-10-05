@@ -2,7 +2,7 @@
 
 ## Local setup and validation
 
-Use the repository README as the source of truth for Entra app registration and environment configuration before running the server locally.
+Use the repository README and its linked `docs/` guides as the source of truth for setup. See `docs/entra-app-registrations.md` for Entra setup, `docs/local-development.md` for local environment configuration, and `docs/testing.md` for offline versus live tests.
 
 - Install dependencies: `npm install`
 - Create local env from the sample: `cp .env.example .env`
@@ -19,7 +19,7 @@ There is no dedicated lint script in `package.json`; prefer `npm run typecheck` 
 
 This repository is a small TypeScript HTTP server for an OAuth-protected Model Context Protocol endpoint.
 
-- `src/config.ts`: loads required environment values (`ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`, `MCP_REQUIRED_SCOPE`), validates them, and derives the Entra issuer and JWKS URLs.
+- `src/config.ts`: loads required environment values (`ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`) and the optional delegated scope (`MCP_REQUIRED_SCOPE`, default `mcp.invoke`), validates configuration, and derives the Entra issuer and JWKS URLs.
 - `src/auth.ts`: validates bearer tokens against the tenant JWKS, checks issuer/audience/expiry, extracts the identity, and enforces the required delegated scope from the `scp` claim.
 - `src/mcp-server.ts`: creates an MCP server instance for each authenticated request and registers the tools `whoami` and `echo`.
 - `src/app.ts`: wires Express + the stateless `StreamableHTTPServerTransport`, enforces auth before body parsing, and exposes `/mcp`, `/healthz`, and the OAuth protected-resource metadata endpoint.
@@ -40,10 +40,11 @@ The app is intentionally designed around a single, simple pattern: authenticate 
 
 ## Required configuration
 
-Before running or testing locally, ensure these values are present in `.env`:
+Before running the server locally, ensure these values are present in `.env` or the process environment:
 
 - `ENTRA_TENANT_ID`
 - `ENTRA_AUDIENCE`
-- `MCP_REQUIRED_SCOPE`
 
-The project also supports optional overrides for custom issuers/JWKS endpoints and the public base URL, as shown in `.env.example`.
+`MCP_REQUIRED_SCOPE` defaults to `mcp.invoke`; set it explicitly if your registration exposes another scope. The project also supports optional overrides for custom issuers/JWKS endpoints and the public base URL, as shown in `.env.example`.
+
+Offline automated tests provide their own configuration and local signing keys; they do not require `.env`, real Entra registrations, or an existing local/Azure deployment. Hook tests mock Azure CLI and require Bash, with PowerShell cases included when `pwsh` is available.
