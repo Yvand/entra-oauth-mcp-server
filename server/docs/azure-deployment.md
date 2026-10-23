@@ -33,7 +33,7 @@ No database, Key Vault, or Application Insights is deployed. Scale-to-zero reduc
 
 ## 1. Authenticate and choose an environment
 
-Run from the repository root. These `azd` commands work in Bash and PowerShell:
+Run from `server/` (`cd server` from the repository root). These `azd` commands work in Bash and PowerShell:
 
 ```bash
 azd auth login --tenant-id "<tenant-id>"
@@ -101,7 +101,7 @@ Set `ENTRA_AUDIENCE` to the **bare API application ID** for Entra v2 tokens. Do 
 
 Do **not** use `ENTRA_CLIENT_APP_ID` as your manual configuration store: [main.bicep](../infra/main.bicep) emits empty `ENTRA_API_APP_ID`, `ENTRA_CLIENT_APP_ID`, and `ENTRA_APP_OWNERSHIP_TAG` outputs in `false` mode. There is no client-ID deployment parameter. Those empty outputs do not mean the externally managed registrations have been removed.
 
-The tenant/audience parameter defaults are placeholder GUIDs to allow provisioning; they do not produce a usable protected API. Fill in real values before testing authentication. Editing the root `.env` is not a substitute for these `azd env set` commands.
+The tenant/audience parameter defaults are placeholder GUIDs to allow provisioning; they do not produce a usable protected API. Fill in real values before testing authentication. Editing `server/.env` is not a substitute for these `azd env set` commands.
 
 ## 2. Understand provisioning and deployment
 
@@ -131,6 +131,8 @@ Values are stored in the selected `.azure/<environment>/` state. `azd env set` d
 | `MCP_PROTECTED_RESOURCE_METADATA` | Full metadata URL |
 
 Configure your actual OAuth client with its application ID, the tenant, its registered callback, the requested scope, and `MCP_ENDPOINT`. With the generated registration, the requested scope is `api://<ENTRA_API_APP_ID>/<MCP_REQUIRED_SCOPE>`; with a manual custom URI, use the URI you exposed instead.
+
+For the Microsoft 365 Copilot Cowork demo, follow the [plugin guide](../../plugin/README.md) to configure its separate Web client and token-vault registration. The generated desktop/CLI client is not that registration.
 
 Generated client ID (Bash / PowerShell):
 

@@ -1,0 +1,88 @@
+name: Release Copilot Cowork plugin
+
+on:
+  push:
+    tags:
+      - releases/plugin/v*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-plugin-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: plugin/package-lock.json
+      - name: Install packaging dependencies
+        working-directory: plugin
+        run: npm ci --ignore-scripts
+      - name: Validate the complete release tag
+        id: version
+        working-directory: plugin
+        env:
+          PLUGIN_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(node --input-type=module -e 'import { versionFromTag } from "./scripts/package.mjs"; console.log(versionFromTag(process.env.PLUGIN_TAG));')
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Test packaging
+        working-directory: plugin
+        run: npm test
+      - name: Build configuration template
+        working-directory: plugin
+        env:
+          PLUGIN_TAG: ${{ github.ref_name }}
+        run: npm run package -- --tag "$PLUGIN_TAG"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: plugin-template
+          path: plugin/build/entra-mcp-cowork-plugin-template-${{ steps.version.outputs.version }}.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: plugin-template
+          path: release
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PLUGIN_TAG: ${{ github.ref_name }}
+          PLUGIN_VERSION: ${{ needs.package.outputs.version }}
+          RELEASE_NOTES: |
+            Microsoft 365 Copilot Cowork demo configuration template.
+
+            This ZIP is NOT install-ready. Replace the MCP HTTPS endpoint, OAuthPluginVault
+            registration reference, and developer/privacy/terms placeholders in manifest.json,
+            then repackage and install into an eligible tenant.
+
+            Setup: https://github.com/${{ github.repository }}/blob/${{ github.sha }}/plugin/README.md
+
+            One skill calls both whoami and echo on the Entra-protected MCP server.
+            No credentials are included. This release does not deploy Azure resources,
+            install tenant apps, or publish to the Microsoft 365 store.
+        run: |
+          gh release create "$PLUGIN_TAG" \
+            "release/entra-mcp-cowork-plugin-template-${PLUGIN_VERSION}.zip" \
+            --verify-tag \
+            --title "Copilot Cowork plugin ${PLUGIN_VERSION} (configuration template)" \
+            --notes "$RELEASE_NOTES"

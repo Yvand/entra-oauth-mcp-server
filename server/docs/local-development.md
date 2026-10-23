@@ -12,7 +12,7 @@ Record the tenant ID, API application ID, calling-client application ID, and ful
 
 ## 2. Configure the server
 
-From the repository root:
+From `server/` (`cd server` from the repository root):
 
 ```bash
 npm install

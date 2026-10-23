@@ -2,7 +2,7 @@
 
 ## Local setup and validation
 
-Use the repository README and its linked `docs/` guides as the source of truth for setup. See `docs/entra-app-registrations.md` for Entra setup, `docs/local-development.md` for local environment configuration, and `docs/testing.md` for offline versus live tests.
+Use the root README for navigation, `server/README.md` and `server/docs/` for server setup, and `plugin/README.md` for the Copilot Cowork plugin. Run the following commands from `server/` (`cd server` from the repository root). See `server/docs/entra-app-registrations.md` for Entra setup, `server/docs/local-development.md` for environment configuration, and `server/docs/testing.md` for offline versus live tests.
 
 - Install dependencies: `npm install`
 - Create local env from the sample: `cp .env.example .env`
@@ -17,7 +17,7 @@ There is no dedicated lint script in `package.json`; prefer `npm run typecheck` 
 
 ## High-level architecture
 
-This repository is a small TypeScript HTTP server for an OAuth-protected Model Context Protocol endpoint.
+The `server/` directory is a small TypeScript HTTP server for an OAuth-protected Model Context Protocol endpoint. Paths in the following list are relative to `server/`.
 
 - `src/config.ts`: loads required environment values (`ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`) and the optional delegated scope (`MCP_REQUIRED_SCOPE`, default `mcp.invoke`), validates configuration, and derives the Entra issuer and JWKS URLs.
 - `src/auth.ts`: validates bearer tokens against the tenant JWKS, checks issuer/audience/expiry, extracts the identity, and enforces the required delegated scope from the `scp` claim.
@@ -48,3 +48,9 @@ Before running the server locally, ensure these values are present in `.env` or 
 `MCP_REQUIRED_SCOPE` defaults to `mcp.invoke`; set it explicitly if your registration exposes another scope. The project also supports optional overrides for custom issuers/JWKS endpoints and the public base URL, as shown in `.env.example`.
 
 Offline automated tests provide their own configuration and local signing keys; they do not require `.env`, real Entra registrations, or an existing local/Azure deployment. Hook tests mock Azure CLI and require Bash, with PowerShell cases included when `pwsh` is available.
+
+## Copilot Cowork plugin
+
+`plugin/appPackage/` contains a unified app manifest v1.29, icons, one skill calling both `whoami` and `echo`, and an OAuthPluginVault MCP connector. It is a configuration template: never embed tokens or client secrets. Keep manual Copilot Web-client/vault setup separate from the server's generated desktop client.
+
+Run `npm ci`, `npm test`, and `npm run package` from `plugin/` for offline validation and template packaging. Use `npm run package -- --configured` only after replacing placeholders. `.github/workflows/release-plugin.yml` releases template ZIPs for strict `releases/plugin/vX.Y.Z` tags; versions are stamped in memory, not into the source manifest or server.
