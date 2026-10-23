@@ -13,7 +13,7 @@ There are two distinct kinds of verification:
 
 ## Offline automated tests
 
-From the repository root, with Node.js 24+ and npm:
+From `server/` (`cd server` from the repository root), with Node.js 24+ and npm:
 
 ```bash
 npm install

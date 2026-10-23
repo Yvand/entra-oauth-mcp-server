@@ -4,7 +4,7 @@
 
 ## Server configuration
 
-[.env.example](../.env.example) is the local template; [src/config.ts](../src/config.ts) defines runtime behavior. For Azure, set mapped values with `azd env set` and **re-provision**; the root `.env` does not configure the Container App.
+[.env.example](../.env.example) is the local template; [src/config.ts](../src/config.ts) defines runtime behavior. Run server and `azd` commands from `server/`. For Azure, set mapped values with `azd env set` and **re-provision**; `server/.env` does not configure the Container App.
 
 | Variable | Required/default | Meaning |
 | --- | --- | --- |

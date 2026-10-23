@@ -49,7 +49,7 @@ Application registrations and enterprise applications (service principals) are d
 
 ## Scripted setup
 
-Choose **one** of these equivalent scripts and run it from the repository root or another working directory. Sign in first with `az login --tenant "<tenant-id>"`. Edit display names, redirect URI, and scope before running.
+Choose **one** of these equivalent scripts and run it from `server/` or another working directory. Sign in first with `az login --tenant "<tenant-id>"`. Edit display names, redirect URI, and scope before running.
 
 These are creation scripts, **not idempotent upserts**. Rerunning creates another pair with new IDs. If a command fails, stop, inspect the objects already created, and either complete setup deliberately or [clean up that exact pair](operations.md#independently-managed-registrations). Do not assume a failed script rolled back its changes.
 

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.29",
+  "version": "1.0.0",
+  "id": "62c65ced-35ae-47c3-af55-1753d48a701b",
+  "developer": {
+    "name": "REPLACE_WITH_DEVELOPER_NAME",
+    "websiteUrl": "https://github.com/Yvand/entra-oauth-mcp-server",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "name": {
+    "short": "Entra MCP Demo",
+    "full": "Entra MCP Demo for Copilot Cowork"
+  },
+  "description": {
+    "short": "Learn delegated MCP authentication with identity and echo tools.",
+    "full": "A learning demo with one skill that calls whoami and echo on an Entra-protected remote MCP server. Configure the server endpoint, OAuth registration reference, and developer details before installation. Requires Microsoft 365 Copilot Cowork."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#2563EB",
+  "agentSkills": [
+    { "folder": "./skills/entra-mcp-demo" }
+  ],
+  "agentConnectors": [
+    {
+      "id": "entra-mcp",
+      "displayName": "Entra MCP Demo Server",
+      "description": "The demo's Entra-protected whoami and echo tools.",
+      "toolSource": {
+        "remoteMcpServer": {
+          "mcpServerUrl": "https://mcp.example.com/mcp",
+          "authorization": {
+            "type": "OAuthPluginVault",
+            "referenceId": "REPLACE_WITH_OAUTH_REGISTRATION_ID"
+          }
+        }
+      }
+    }
+  ]
+}
